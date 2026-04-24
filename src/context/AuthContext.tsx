@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AuthUser } from '../network/authApi';
 import { fetchMe, loginAccount, registerAccount } from '../network/authApi';
 import { setChatAuthToken } from '../network/chatSocket';
-import { registerExpoPushWithServer, unregisterExpoPushFromServer } from '../push/expoPushRegistration';
+import { syncExpoPushWithServer, unregisterExpoPushFromServer } from '../push/expoPushRegistration';
 
 const TOKEN_KEY = 'rchat_auth_token';
 
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready || !token) return;
-    void registerExpoPushWithServer(token);
+    void syncExpoPushWithServer(token);
   }, [ready, token]);
 
   const signIn = useCallback(async (email: string, password: string) => {

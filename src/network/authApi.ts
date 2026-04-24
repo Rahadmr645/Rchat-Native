@@ -37,7 +37,7 @@ async function postJson(url: string, body: object): Promise<Response> {
   } catch (e) {
     const hint =
       e instanceof TypeError
-        ? `Cannot reach the server at ${getApiBaseUrl()}. Start the API (${DEFAULT_API_PORT}), use the same Wi‑Fi as your phone, and try again. If the URL shows localhost on a device, set EXPO_PUBLIC_DEV_API_HOST or DEV_API_HOST_OVERRIDE in src/config.ts.`
+        ? `Cannot reach the server at ${getApiBaseUrl()}. Start the API (${DEFAULT_API_PORT}), use the same Wi‑Fi as your phone, and try again. For a remote API, set EXPO_PUBLIC_API_URL in .env. For local dev on a device, set EXPO_PUBLIC_DEV_API_HOST (your PC’s LAN IP) or DEV_API_HOST_OVERRIDE in src/config.ts.`
         : 'Network error. Check your connection and try again.';
     throw new AuthApiError(hint, 'network', 0);
   }

@@ -11,6 +11,7 @@ import { PlaceholderTabScreen } from '../screens/PlaceholderTabScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { ChatsHeaderActions } from '../components/ChatsHeaderActions';
+import { NotificationEnableBanner } from '../components/NotificationEnableBanner';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/colors';
 import { chatRoomTheme } from '../theme/chatRoomTheme';
@@ -153,7 +154,7 @@ function AuthNavigator() {
 }
 
 export function RootNavigator() {
-  const { user, ready } = useAuth();
+  const { user, ready, token } = useAuth();
 
   if (!ready) {
     return (
@@ -165,7 +166,16 @@ export function RootNavigator() {
 
   return (
     <NavigationContainer theme={navTheme}>
-      {user ? <MainTabs /> : <AuthNavigator />}
+      {user && token ? (
+        <View style={styles.mainShell}>
+          <NotificationEnableBanner apiBearerToken={token} />
+          <View style={styles.mainShellContent}>
+            <MainTabs />
+          </View>
+        </View>
+      ) : (
+        <AuthNavigator />
+      )}
     </NavigationContainer>
   );
 }
@@ -176,5 +186,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E8F5F2',
+  },
+  mainShell: {
+    flex: 1,
+  },
+  mainShellContent: {
+    flex: 1,
   },
 });

@@ -24,6 +24,15 @@ async function writeStoredExpoPushToken(token: string | null): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, token);
 }
 
+async function ensureAndroidDefaultChannel(): Promise<void> {
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Messages',
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  }
+}
+
 /**
  * Removes this device token from the server (call while the API JWT is still valid).
  */
@@ -46,20 +55,36 @@ export async function unregisterExpoPushFromServer(apiBearerToken: string): Prom
   }
 }
 
+export function getExpoNotificationPermission(): Promise<Notifications.PermissionResponse> {
+  return Notifications.getPermissionsAsync();
+}
+
 /**
- * Requests notification permission, obtains an Expo push token, and registers it with the API.
- * Requires `expo.extra.eas.projectId` (run `npx eas init` and merge into app config) for a dev/production build.
+ * Registers with the server when notification permission is already granted.
+ * Does not show a permission dialog (safe to call on sign-in / app start).
+ * Requires `expo.extra.eas.projectId` for a dev/production build.
  */
-export async function registerExpoPushWithServer(apiBearerToken: string): Promise<void> {
+export async function syncExpoPushWithServer(apiBearerToken: string): Promise<void> {
   if (!Device.isDevice) return;
   if (Platform.OS === 'web') return;
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Messages',
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
-  }
+  await ensureAndroidDefaultChannel();
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== 'granted') return;
+
+  const ok = await registerExpoPushTokenWithServer(apiBearerToken);
+  if (!ok && __DEV__) console.warn('[push] sync register did not complete');
+}
+
+/**
+ * Requests notification permission (system dialog when still allowed), obtains an Expo push token,
+ * and registers it with the API. Call only from an explicit user action (e.g. banner button).
+ */
+export async function requestExpoPushPermissionAndRegister(apiBearerToken: string): Promise<boolean> {
+  if (!Device.isDevice) return false;
+  if (Platform.OS === 'web') return false;
+
+  await ensureAndroidDefaultChannel();
 
   const { status: existing } = await Notifications.getPermissionsAsync();
   let finalStatus = existing;
@@ -67,8 +92,12 @@ export async function registerExpoPushWithServer(apiBearerToken: string): Promis
     const { status } = await Notifications.requestPermissionsAsync();
     finalStatus = status;
   }
-  if (finalStatus !== 'granted') return;
+  if (finalStatus !== 'granted') return false;
 
+  return registerExpoPushTokenWithServer(apiBearerToken);
+}
+
+async function registerExpoPushTokenWithServer(apiBearerToken: string): Promise<boolean> {
   const projectId =
     (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ??
     (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig?.projectId;
@@ -78,7 +107,7 @@ export async function registerExpoPushWithServer(apiBearerToken: string): Promis
         '[push] Set expo.extra.eas.projectId (run `npx eas init`) so Expo can issue a push token.',
       );
     }
-    return;
+    return false;
   }
 
   let pushToken: string;
@@ -86,7 +115,7 @@ export async function registerExpoPushWithServer(apiBearerToken: string): Promis
     pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
   } catch (e) {
     if (__DEV__) console.warn('[push] getExpoPushTokenAsync failed', e);
-    return;
+    return false;
   }
 
   try {
@@ -100,10 +129,12 @@ export async function registerExpoPushWithServer(apiBearerToken: string): Promis
     });
     if (!res.ok) {
       if (__DEV__) console.warn('[push] register failed HTTP', res.status);
-      return;
+      return false;
     }
     await writeStoredExpoPushToken(pushToken);
+    return true;
   } catch (e) {
     if (__DEV__) console.warn('[push] register request failed', e);
+    return false;
   }
 }

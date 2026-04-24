@@ -21,6 +21,19 @@ function envDevApiHost(): string | null {
   return normalizedDevHost(process.env.EXPO_PUBLIC_DEV_API_HOST);
 }
 
+/** Full API origin, e.g. `https://your-app.up.railway.app` (no path). Inlined when prefixed with `EXPO_PUBLIC_`. */
+function envFullApiBaseUrl(): string | null {
+  if (typeof process === 'undefined' || !process.env) return null;
+  const raw = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_SERVER_URL;
+  if (!raw || typeof raw !== 'string') return null;
+  let u = raw.trim().replace(/\/+$/, '');
+  if (!u) return null;
+  if (!/^https?:\/\//i.test(u)) {
+    u = `https://${u}`;
+  }
+  return u;
+}
+
 /**
  * Parses Metro / Expo URIs: `192.168.1.5:8081`, `exp://192.168.1.5:8081`, `http://…`.
  * A naive `split(':')[0]` breaks `exp://…` (returns `exp`).
@@ -56,6 +69,7 @@ function hostFromMetroBundleUrl(): string | null {
 
 /**
  * Dev-only: where the Node API is reachable from this device.
+ * - `EXPO_PUBLIC_API_URL` (full origin) when the API is remote (e.g. Railway) — works on a physical device
  * - `EXPO_PUBLIC_DEV_API_HOST` or {@link DEV_API_HOST_OVERRIDE} when auto-detection fails
  * - Expo Go / dev client: `debuggerHost` / `hostUri`
  * - `SourceCode.scriptURL` (Metro) for many `expo run:*` setups
@@ -63,6 +77,11 @@ function hostFromMetroBundleUrl(): string | null {
  * - Otherwise localhost (simulator / web on same machine)
  */
 export function getApiBaseUrl(): string {
+  const fromEnvFull = envFullApiBaseUrl();
+  if (fromEnvFull) {
+    return fromEnvFull;
+  }
+
   if (!__DEV__) {
     return 'https://example.com';
   }
