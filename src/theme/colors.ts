@@ -1,0 +1,16 @@
+export const colors = {
+  header: '#128C7E',
+  headerDark: '#075E54',
+  accent: '#25D366',
+  outgoingBubble: '#DCF8C6',
+  incomingBubble: '#FFFFFF',
+  chatBackground: '#ECE5DD',
+  listBackground: '#FFFFFF',
+  textPrimary: '#111111',
+  textSecondary: '#667781',
+  divider: '#E9EDEF',
+  unreadBadge: '#25D366',
+  tabInactive: '#8596A0',
+  inputBackground: '#FFFFFF',
+  iconTint: '#FFFFFF',
+} as const;
