@@ -17,10 +17,14 @@ const { registerChatSocket } = require('./socket/chat.socket.js');
 const PORT = Number.parseInt(String(process.env.PORT || '3000'), 10) || 3000;
 
 async function start() {
+  console.log('[startup] Booting server...');
+  console.log(`[startup] PORT=${process.env.PORT || '3000'} RAILWAY_ENVIRONMENT=${process.env.RAILWAY_ENVIRONMENT || 'false'}`);
   const { client, db } = await connectMongo();
+  console.log('[startup] MongoDB connected.');
   await chatStore.init(db);
   await usersStore.init(db);
   await friendsStore.init(db);
+  console.log('[startup] Stores initialized.');
 
   const app = express();
   app.use(cors({ origin: true, credentials: true }));
@@ -50,7 +54,7 @@ async function start() {
   registerChatSocket(io, { verifyAccessToken });
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`RChat server listening on http://0.0.0.0:${PORT} (reachable from LAN/emulator)`);
+    console.log(`RChat server listening on http://127.0.0.1:${PORT} (reachable from LAN/emulator)`);
     if (process.env.RAILWAY_ENVIRONMENT) {
       console.log(
         `[railway] Public URL must target port ${PORT} (match PORT env). If the browser shows 502, open Networking for this service and set the domain’s target port to ${PORT}, or clear a fixed port of 3000.`,

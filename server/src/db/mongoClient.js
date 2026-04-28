@@ -10,9 +10,15 @@ async function connectMongo() {
   if (!url || typeof url !== 'string') {
     throw new Error('Set MONGO_URL in server/.env to your MongoDB connection string.');
   }
-  const client = new MongoClient(url);
+  const client = new MongoClient(url, {
+    // Fail fast on bad DNS/network/credentials in hosted environments.
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 20000,
+  });
   await client.connect();
   const db = client.db(DEFAULT_DB);
+  await db.command({ ping: 1 });
   return { client, db };
 }
 

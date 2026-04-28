@@ -27,6 +27,20 @@ async function readBody(res: Response): Promise<{ error?: string } | unknown> {
   }
 }
 
+function isLocalApiUrl(apiBaseUrl: string): boolean {
+  try {
+    const u = new URL(apiBaseUrl);
+    const h = u.hostname;
+    if (h === 'localhost' || h === '127.0.0.1' || h === '10.0.2.2') return true;
+    if (/^192\.168\./.test(h)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(h)) return true;
+    if (/^10\./.test(h)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function postJson(url: string, body: object): Promise<Response> {
   try {
     return await fetch(url, {
@@ -35,9 +49,12 @@ async function postJson(url: string, body: object): Promise<Response> {
       body: JSON.stringify(body),
     });
   } catch (e) {
+    const apiBaseUrl = getApiBaseUrl();
     const hint =
       e instanceof TypeError
-        ? `Cannot reach the server at ${getApiBaseUrl()}. Start the API (${DEFAULT_API_PORT}), use the same Wi‑Fi as your phone, and try again. For a remote API, set EXPO_PUBLIC_API_URL in .env. For local dev on a device, set EXPO_PUBLIC_DEV_API_HOST (your PC’s LAN IP) or DEV_API_HOST_OVERRIDE in src/config.ts.`
+        ? isLocalApiUrl(apiBaseUrl)
+          ? `Cannot reach the server at ${apiBaseUrl}. Start the API (${DEFAULT_API_PORT}), use the same Wi‑Fi as your phone, and try again. For local dev on a device, set EXPO_PUBLIC_DEV_API_HOST (your PC’s LAN IP) or DEV_API_HOST_OVERRIDE in src/config.ts.`
+          : `Cannot reach the remote server at ${apiBaseUrl}. The host may be down, blocked by network/VPN, or returning 502. Open ${apiBaseUrl}/health in your browser and check Railway logs.`
         : 'Network error. Check your connection and try again.';
     throw new AuthApiError(hint, 'network', 0);
   }
@@ -49,9 +66,12 @@ async function getWithAuth(url: string, token: string): Promise<Response> {
       headers: { Authorization: `Bearer ${token}` },
     });
   } catch (e) {
+    const apiBaseUrl = getApiBaseUrl();
     const hint =
       e instanceof TypeError
-        ? `Cannot reach the server at ${getApiBaseUrl()}. Check Wi‑Fi and that the server is running.`
+        ? isLocalApiUrl(apiBaseUrl)
+          ? `Cannot reach the server at ${apiBaseUrl}. Check Wi‑Fi and that the server is running.`
+          : `Cannot reach the remote server at ${apiBaseUrl}. Check Railway status/logs and your network, then try again.`
         : 'Network error. Check your connection and try again.';
     throw new AuthApiError(hint, 'network', 0);
   }
@@ -136,6 +156,9 @@ function mapAuthError(code: string | undefined, status: number): string {
     case 'invalid_token':
       return 'Your session expired. Please sign in again.';
     default:
+      if (status === 502) {
+        return 'Server temporarily unavailable (502). If you use Railway, verify the service is healthy and target port matches the app listen port.';
+      }
       if (status >= 500) return 'Something went wrong. Try again later.';
       return 'Could not complete the request. Please try again.';
   }
