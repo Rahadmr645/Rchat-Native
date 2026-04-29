@@ -31,6 +31,19 @@ export async function fetchMessages(threadId: string, token: string): Promise<Me
   return parseJson<Message[]>(res);
 }
 
+export async function deleteThreadMessages(
+  threadId: string,
+  token: string,
+  payload: { messageIds: string[]; scope: 'me' | 'everyone' },
+): Promise<{ ok: boolean; affectedIds?: string[]; scope?: string; deletedCount?: number }> {
+  const res = await fetch(`${getApiBaseUrl()}/api/threads/${encodeURIComponent(threadId)}/messages/delete`, {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messageIds: payload.messageIds, scope: payload.scope }),
+  });
+  return parseJson(res);
+}
+
 export type ThreadPresence = {
   subtitle: string;
   otherUserId: string | null;

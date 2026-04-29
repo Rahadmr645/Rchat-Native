@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { MOCK_THREADS } from '../data/mockChats';
 import { fetchThreads } from '../network/chatApi';
 import { getChatSocket } from '../network/chatSocket';
+import { emitThreadPushMuteSync, fetchMutedThreadIdsFromStorage } from '../push/threadMuteSync';
 import { ChatListRow } from '../components/ChatListRow';
 import { useDeviceInternetOnline } from '../hooks/useDeviceInternetOnline';
 import { useAuth } from '../context/AuthContext';
-import { colors } from '../theme/colors';
+import { useAppTheme } from '../context/ThemeContext';
 import type { ChatsStackParamList } from '../navigation/types';
 import type { ChatThread } from '../types/chat';
 
@@ -27,6 +29,7 @@ function getOtherDmUserId(threadId: string, me: string): string | undefined {
 
 export function ChatsScreen() {
   const navigation = useNavigation<Nav>();
+  const { colors } = useAppTheme();
   const { token, user } = useAuth();
   const deviceOnline = useDeviceInternetOnline();
   const [query, setQuery] = useState('');
@@ -58,15 +61,67 @@ export function ChatsScreen() {
 
   useEffect(() => {
     if (!token) return;
+    const total = threads.reduce((sum, t) => sum + (typeof t.unreadCount === 'number' ? t.unreadCount : 0), 0);
+    void Notifications.setBadgeCountAsync(total);
+  }, [threads, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const sock = getChatSocket();
+    const syncMutes = () => {
+      void fetchMutedThreadIdsFromStorage().then((ids) => emitThreadPushMuteSync(sock, ids));
+    };
+    if (sock.connected) syncMutes();
+    else sock.on('connect', syncMutes);
+    return () => {
+      sock.off('connect', syncMutes);
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
     const socket = getChatSocket();
     function onThreadsChanged() {
       loadThreads();
     }
+    function onThreadMessage(payload?: {
+      threadId?: string;
+      message?: { text?: string; timeLabel?: string; senderUserId?: string | null; outgoing?: boolean };
+    }) {
+      const threadId = payload?.threadId;
+      const message = payload?.message;
+      if (!threadId || !message?.text) {
+        loadThreads();
+        return;
+      }
+      const messageText = message.text;
+      setThreads((prev) => {
+        const idx = prev.findIndex((t) => t.id === threadId);
+        if (idx < 0) return prev;
+        const thread = prev[idx];
+        const fromMe =
+          message.senderUserId != null && user?.id
+            ? message.senderUserId === user.id
+            : Boolean(message.outgoing);
+        const nextLastMessage = fromMe ? `You: ${messageText}` : messageText;
+        const nextThread: ChatThread = {
+          ...thread,
+          lastMessage: nextLastMessage,
+          timeLabel: message.timeLabel || thread.timeLabel,
+          unreadCount: fromMe ? thread.unreadCount : (thread.unreadCount ?? 0) + 1,
+        };
+        const next = [...prev];
+        next.splice(idx, 1);
+        return [nextThread, ...next];
+      });
+    }
     socket.on('threads_changed', onThreadsChanged);
+    socket.on('thread_message', onThreadMessage);
     return () => {
       socket.off('threads_changed', onThreadsChanged);
+      socket.off('thread_message', onThreadMessage);
     };
-  }, [token, loadThreads]);
+  }, [token, loadThreads, user]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -78,6 +133,75 @@ export function ChatsScreen() {
         (t.lastSeen && t.lastSeen.toLowerCase().includes(q)),
     );
   }, [query, threads]);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        screen: {
+          flex: 1,
+          backgroundColor: colors.listBackground,
+        },
+        banner: {
+          backgroundColor: '#FFF4CE',
+          color: '#5C4A00',
+          fontSize: 13,
+          paddingVertical: 8,
+          paddingHorizontal: 14,
+          textAlign: 'center',
+        },
+        searchWrap: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginHorizontal: 12,
+          marginVertical: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          borderRadius: 10,
+          backgroundColor: colors.searchBarBackground,
+        },
+        searchIcon: {
+          marginRight: 8,
+        },
+        searchInput: {
+          flex: 1,
+          fontSize: 15,
+          color: colors.textPrimary,
+          padding: 0,
+        },
+        loading: {
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingBottom: 48,
+        },
+        empty: {
+          textAlign: 'center',
+          marginTop: 40,
+          color: colors.textSecondary,
+          fontSize: 15,
+        },
+        fab: {
+          position: 'absolute',
+          right: 20,
+          bottom: 22,
+          width: 58,
+          height: 58,
+          borderRadius: 29,
+          backgroundColor: colors.accent,
+          alignItems: 'center',
+          justifyContent: 'center',
+          elevation: 4,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 4,
+        },
+        fabPressed: {
+          opacity: 0.92,
+        },
+      }),
+    [colors],
+  );
 
   function openThread(thread: ChatThread) {
     const otherUserId = user?.id ? getOtherDmUserId(thread.id, user.id) : undefined;
@@ -145,68 +269,3 @@ export function ChatsScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.listBackground,
-  },
-  banner: {
-    backgroundColor: '#FFF4CE',
-    color: '#5C4A00',
-    fontSize: 13,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    textAlign: 'center',
-  },
-  searchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 12,
-    marginVertical: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#F0F2F5',
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: colors.textPrimary,
-    padding: 0,
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 48,
-  },
-  empty: {
-    textAlign: 'center',
-    marginTop: 40,
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 22,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  fabPressed: {
-    opacity: 0.92,
-  },
-});

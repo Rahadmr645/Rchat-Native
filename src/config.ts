@@ -77,15 +77,14 @@ function hostFromMetroBundleUrl(): string | null {
  * - Otherwise localhost (simulator / web on same machine)
  */
 export function getApiBaseUrl(): string {
-  const fromEnv = envDevApiHost();
-  // In local development, prefer local/LAN API host even if a stale EXPO_PUBLIC_API_URL exists.
-  if (__DEV__ && fromEnv) {
-    return `http://${fromEnv}:${DEFAULT_API_PORT}`;
-  }
-
   const fromEnvFull = envFullApiBaseUrl();
   if (fromEnvFull) {
     return fromEnvFull;
+  }
+
+  const fromEnv = envDevApiHost();
+  if (__DEV__ && fromEnv) {
+    return `http://${fromEnv}:${DEFAULT_API_PORT}`;
   }
 
   if (!__DEV__) {

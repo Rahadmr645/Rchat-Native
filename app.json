@@ -63,6 +63,7 @@
           "microphonePermission": "Allow RChat to use the microphone for voice and video calls."
         }
       ],
+      "./plugins/withWebRtcScreenCapture",
       "./plugins/withAndroidStudioJbrForGradle",
       "expo-notifications"
     ]

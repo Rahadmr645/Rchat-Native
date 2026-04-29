@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -6,7 +7,7 @@ import {
   type PressableProps,
   type PressableStateCallbackType,
 } from 'react-native';
-import { colors } from '../theme/colors';
+import { useAppTheme } from '../context/ThemeContext';
 
 type Props = PressableProps & {
   title: string;
@@ -22,6 +23,55 @@ export function PrimaryButton({
   style,
   ...rest
 }: Props) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        base: {
+          minHeight: 52,
+          borderRadius: 14,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: 20,
+        },
+        solid: {
+          backgroundColor: colors.header,
+          shadowColor: colors.headerDark,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.25,
+          shadowRadius: 8,
+          elevation: 3,
+        },
+        solidPressed: {
+          opacity: 0.92,
+        },
+        solidDim: {
+          opacity: 0.55,
+        },
+        ghost: {
+          backgroundColor: 'transparent',
+        },
+        ghostPressed: {
+          backgroundColor: 'rgba(18, 140, 126, 0.08)',
+        },
+        ghostDim: {
+          opacity: 0.5,
+        },
+        label: {
+          fontSize: 16,
+          fontWeight: '700',
+          letterSpacing: 0.3,
+        },
+        labelSolid: {
+          color: '#fff',
+        },
+        labelGhost: {
+          color: colors.header,
+        },
+      }),
+    [colors],
+  );
+
   const isGhost = variant === 'ghost';
   const dim = Boolean(disabled || loading);
   return (
@@ -49,47 +99,3 @@ export function PrimaryButton({
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    minHeight: 52,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  solid: {
-    backgroundColor: colors.header,
-    shadowColor: colors.headerDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  solidPressed: {
-    opacity: 0.92,
-  },
-  solidDim: {
-    opacity: 0.55,
-  },
-  ghost: {
-    backgroundColor: 'transparent',
-  },
-  ghostPressed: {
-    backgroundColor: 'rgba(18, 140, 126, 0.08)',
-  },
-  ghostDim: {
-    opacity: 0.5,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  labelSolid: {
-    color: '#fff',
-  },
-  labelGhost: {
-    color: colors.header,
-  },
-});

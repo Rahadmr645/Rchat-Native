@@ -22,6 +22,7 @@ const INPUT_MAX_H = 120;
 type Props = {
   onSend: (text: string) => void;
   onSendVoice?: (payload: { uri: string; durationMs: number }) => Promise<void> | void;
+  onActivityChange?: (kind: 'typing' | 'speaking', active: boolean) => void;
   onSendPhoto?: (payload: {
     uri: string;
     fileName: string;
@@ -31,6 +32,10 @@ type Props = {
     caption?: string;
   }) => Promise<void> | void;
   disabled?: boolean;
+  presetText?: string;
+  presetToken?: number;
+  replyPreviewText?: string | null;
+  onClearReply?: () => void;
 };
 
 function formatRecordTimer(ms: number): string {
@@ -40,7 +45,17 @@ function formatRecordTimer(ms: number): string {
   return `${m}:${sec < 10 ? `0${sec}` : sec}`;
 }
 
-export function Composer({ onSend, onSendVoice, onSendPhoto, disabled }: Props) {
+export function Composer({
+  onSend,
+  onSendVoice,
+  onSendPhoto,
+  onActivityChange,
+  disabled,
+  presetText,
+  presetToken,
+  replyPreviewText,
+  onClearReply,
+}: Props) {
   const [value, setValue] = useState('');
   const [inputHeight, setInputHeight] = useState(INPUT_MIN_H);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -48,6 +63,9 @@ export function Composer({ onSend, onSendVoice, onSendPhoto, disabled }: Props) 
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [attachBusy, setAttachBusy] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
+  const typingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingActiveRef = useRef(false);
+  const speakingActiveRef = useRef(false);
 
   const isRecording = recording != null;
   const voiceDisabled = !!disabled || voiceBusy;
@@ -61,6 +79,11 @@ export function Composer({ onSend, onSendVoice, onSendPhoto, disabled }: Props) 
       });
     };
   }, [recording]);
+
+  useEffect(() => {
+    if (presetToken == null) return;
+    setValue(presetText ?? '');
+  }, [presetText, presetToken]);
 
   useEffect(() => {
     if (!recording) {
@@ -106,6 +129,51 @@ export function Composer({ onSend, onSendVoice, onSendPhoto, disabled }: Props) 
     loop.start();
     return () => loop.stop();
   }, [isRecording, pulse]);
+
+  useEffect(() => {
+    const currentlyTyping = value.trim().length > 0 && !disabled;
+    if (currentlyTyping && !typingActiveRef.current) {
+      typingActiveRef.current = true;
+      onActivityChange?.('typing', true);
+    }
+    if (typingStopTimeoutRef.current) {
+      clearTimeout(typingStopTimeoutRef.current);
+      typingStopTimeoutRef.current = null;
+    }
+    if (currentlyTyping) {
+      typingStopTimeoutRef.current = setTimeout(() => {
+        if (typingActiveRef.current) {
+          typingActiveRef.current = false;
+          onActivityChange?.('typing', false);
+        }
+      }, 1200);
+    } else if (typingActiveRef.current) {
+      typingActiveRef.current = false;
+      onActivityChange?.('typing', false);
+    }
+    return () => {
+      if (typingStopTimeoutRef.current) {
+        clearTimeout(typingStopTimeoutRef.current);
+        typingStopTimeoutRef.current = null;
+      }
+    };
+  }, [value, disabled, onActivityChange]);
+
+  useEffect(() => {
+    const currentlySpeaking = isRecording && !disabled;
+    if (currentlySpeaking !== speakingActiveRef.current) {
+      speakingActiveRef.current = currentlySpeaking;
+      onActivityChange?.('speaking', currentlySpeaking);
+    }
+  }, [isRecording, disabled, onActivityChange]);
+
+  useEffect(() => {
+    return () => {
+      if (typingStopTimeoutRef.current) clearTimeout(typingStopTimeoutRef.current);
+      if (typingActiveRef.current) onActivityChange?.('typing', false);
+      if (speakingActiveRef.current) onActivityChange?.('speaking', false);
+    };
+  }, [onActivityChange]);
 
   function handleSend() {
     if (disabled) return;
@@ -290,6 +358,20 @@ export function Composer({ onSend, onSendVoice, onSendPhoto, disabled }: Props) 
 
   return (
     <View style={[styles.wrap, disabled && styles.wrapDisabled]}>
+      {replyPreviewText ? (
+        <View style={styles.replyBar}>
+          <View style={styles.replyAccent} />
+          <View style={styles.replyBody}>
+            <Text style={styles.replyLabel}>Replying to</Text>
+            <Text style={styles.replyText} numberOfLines={1}>
+              {replyPreviewText}
+            </Text>
+          </View>
+          <Pressable onPress={onClearReply} hitSlop={8} style={styles.replyClose} accessibilityLabel="Cancel reply">
+            <Ionicons name="close" size={18} color="rgba(233,237,239,0.72)" />
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.row}>
         <View style={styles.pill}>
           <Pressable
@@ -381,6 +463,45 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
     paddingBottom: 6,
+  },
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1D2A31',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  replyAccent: {
+    width: 3,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    backgroundColor: '#00A884',
+    marginRight: 8,
+  },
+  replyBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  replyLabel: {
+    color: '#00A884',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 1,
+  },
+  replyText: {
+    color: 'rgba(233,237,239,0.9)',
+    fontSize: 13,
+  },
+  replyClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pill: {
     flex: 1,

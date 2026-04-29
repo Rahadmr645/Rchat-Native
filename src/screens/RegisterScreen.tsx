@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,7 +15,7 @@ import { AuthTextField } from '../components/AuthTextField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useAuth } from '../context/AuthContext';
 import { AuthApiError } from '../network/authApi';
-import { colors } from '../theme/colors';
+import { useAppTheme } from '../context/ThemeContext';
 import type { AuthStackParamList } from '../navigation/types';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'Register'>;
@@ -23,12 +23,100 @@ type Nav = NativeStackNavigationProp<AuthStackParamList, 'Register'>;
 export function RegisterScreen() {
   const navigation = useNavigation<Nav>();
   const { signUp } = useAuth();
+  const { colors } = useAppTheme();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [secure, setSecure] = useState(true);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        safe: {
+          flex: 1,
+          backgroundColor: colors.authScreenBg,
+        },
+        flex: {
+          flex: 1,
+        },
+        scroll: {
+          flexGrow: 1,
+          paddingHorizontal: 22,
+          paddingTop: 12,
+          paddingBottom: 28,
+        },
+        hero: {
+          alignItems: 'center',
+          marginBottom: 24,
+          marginTop: 4,
+        },
+        logoWrap: {
+          width: 72,
+          height: 72,
+          borderRadius: 22,
+          backgroundColor: colors.authLogoWrapBg,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 16,
+          shadowColor: '#0F172A',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.08,
+          shadowRadius: 16,
+          elevation: 4,
+        },
+        title: {
+          fontSize: 26,
+          fontWeight: '800',
+          color: colors.textPrimary,
+          letterSpacing: -0.4,
+        },
+        subtitle: {
+          marginTop: 8,
+          fontSize: 14,
+          color: colors.textSecondary,
+          textAlign: 'center',
+          lineHeight: 21,
+          paddingHorizontal: 8,
+        },
+        card: {
+          backgroundColor: colors.cardBackground,
+          borderRadius: 22,
+          padding: 22,
+          shadowColor: '#0F172A',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.06,
+          shadowRadius: 24,
+          elevation: 2,
+        },
+        banner: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          backgroundColor: '#FEF2F2',
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 16,
+          borderWidth: 1,
+          borderColor: '#FECACA',
+        },
+        bannerText: {
+          flex: 1,
+          color: '#991B1B',
+          fontSize: 13,
+          fontWeight: '600',
+          lineHeight: 18,
+        },
+        cta: {
+          marginTop: 4,
+        },
+        secondary: {
+          marginTop: 6,
+        },
+      }),
+    [colors],
+  );
 
   async function onSubmit() {
     setFormError(null);
@@ -120,86 +208,3 @@ export function RegisterScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#E8F5F2',
-  },
-  flex: {
-    flex: 1,
-  },
-  scroll: {
-    flexGrow: 1,
-    paddingHorizontal: 22,
-    paddingTop: 12,
-    paddingBottom: 28,
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: 24,
-    marginTop: 4,
-  },
-  logoWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 4,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: -0.4,
-  },
-  subtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 21,
-    paddingHorizontal: 8,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 22,
-    padding: 22,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 2,
-  },
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  bannerText: {
-    flex: 1,
-    color: '#991B1B',
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-  },
-  cta: {
-    marginTop: 4,
-  },
-  secondary: {
-    marginTop: 6,
-  },
-});

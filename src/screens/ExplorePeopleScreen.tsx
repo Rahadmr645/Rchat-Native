@@ -22,17 +22,8 @@ import {
   sendFriendRequest,
   type ExploreUser,
 } from '../network/friendsApi';
-import { colors } from '../theme/colors';
-
-function Avatar({ letter, imageUri }: { letter: string; imageUri?: string | null }) {
-  const ch = letter.trim().slice(0, 1).toUpperCase() || '?';
-  const uri = imageUri?.trim();
-  return (
-    <View style={styles.avatar}>
-      {uri ? <Image source={{ uri }} style={styles.avatarImage} /> : <Text style={styles.avatarLetter}>{ch}</Text>}
-    </View>
-  );
-}
+import { useAppTheme } from '../context/ThemeContext';
+import { createExplorePeopleStyles } from './explorePeopleStyles';
 
 export function ExplorePeopleScreen() {
   const { token, user } = useAuth();
@@ -41,6 +32,10 @@ export function ExplorePeopleScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  const { colors, resolved } = useAppTheme();
+  const isDark = resolved === 'dark';
+  const styles = useMemo(() => createExplorePeopleStyles(colors, isDark), [colors, isDark]);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -94,6 +89,16 @@ export function ExplorePeopleScreen() {
     () => (user?.id ? users.filter((u) => u.id !== user.id).length : users.length),
     [users, user?.id],
   );
+
+  function Avatar({ letter, imageUri }: { letter: string; imageUri?: string | null }) {
+    const ch = letter.trim().slice(0, 1).toUpperCase() || '?';
+    const uri = imageUri?.trim();
+    return (
+      <View style={styles.avatar}>
+        {uri ? <Image source={{ uri }} style={styles.avatarImage} /> : <Text style={styles.avatarLetter}>{ch}</Text>}
+      </View>
+    );
+  }
 
   async function onSendRequest(u: ExploreUser) {
     if (!token) return;
@@ -246,176 +251,3 @@ export function ExplorePeopleScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.listBackground,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.listBackground,
-  },
-  loadingHint: {
-    marginTop: 12,
-    fontSize: 15,
-    color: colors.textSecondary,
-  },
-  searchShell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#F0F4F3',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.divider,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: colors.textPrimary,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  listEmpty: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    justifyContent: 'center',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.divider,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.header,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    overflow: 'hidden',
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  avatarLetter: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  rowBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  rowName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  rowEmail: {
-    marginTop: 2,
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  pillMuted: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(18, 140, 126, 0.1)',
-  },
-  pillMutedText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.headerDark,
-  },
-  pillSecondary: {
-    color: colors.textSecondary,
-  },
-  btnAdd: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: colors.header,
-    backgroundColor: '#fff',
-  },
-  btnAddPressed: {
-    backgroundColor: 'rgba(18, 140, 126, 0.08)',
-  },
-  btnAddLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.header,
-  },
-  btnAcceptSmall: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 22,
-    backgroundColor: colors.header,
-    minWidth: 96,
-    justifyContent: 'center',
-  },
-  btnAcceptSmallPressed: {
-    opacity: 0.9,
-  },
-  btnAcceptSmallLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  btnDisabled: {
-    opacity: 0.45,
-  },
-  emptyWrap: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  emptyIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#EEF2F1',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  emptyBody: {
-    marginTop: 8,
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 21,
-    maxWidth: 280,
-  },
-});

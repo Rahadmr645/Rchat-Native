@@ -14,6 +14,10 @@ export type ChatsStackParamList = {
     peerAvatarUrl?: string;
     /** Other participant in a DM; used to refresh "last seen" / online in the header. */
     otherUserId?: string;
+    /** If provided, ChatRoom auto-starts a call when screen opens. */
+    startCallMedia?: 'audio' | 'video';
+    /** Idempotency token to avoid duplicate auto-start triggers. */
+    startCallNonce?: number;
   };
 };
 

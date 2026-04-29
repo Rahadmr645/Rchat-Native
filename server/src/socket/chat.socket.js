@@ -3,6 +3,7 @@ const chatStore = require('../services/chatStore.js');
 const presenceStore = require('../services/presenceStore.js');
 const usersStore = require('../services/usersStore.js');
 const pushNotify = require('../services/pushNotify.js');
+const notificationPrefsStore = require('../services/notificationPrefsStore.js');
 
 function roomName(threadId) {
   return `thread:${threadId}`;
@@ -10,6 +11,24 @@ function roomName(threadId) {
 
 function userRoom(userId) {
   return `user:${userId}`;
+}
+
+/**
+ * Recipient has at least one connected socket joined to this thread room (chat is on screen).
+ * @param {import('socket.io').Server} io
+ * @param {string} userId
+ * @param {string} threadId
+ */
+async function userIsViewingThread(io, userId, threadId) {
+  const uid = String(userId || '');
+  const tid = String(threadId || '');
+  if (!uid || !tid) return false;
+  try {
+    const sockets = await io.in(roomName(tid)).fetchSockets();
+    return sockets.some((s) => s.userId != null && String(s.userId) === uid);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -37,6 +56,37 @@ function registerChatSocket(io, { verifyAccessToken }) {
       const uid = String(socket.userId);
       presenceStore.handleSocketConnected(uid, socket.id);
       socket.join(userRoom(uid));
+      // IMO-style: when the recipient reconnects, every message that was still
+      // marked 'sent' becomes 'delivered'. Notify senders so single tick flips
+      // to double tick everywhere instantly.
+      void chatStore
+        .markPendingMessagesDeliveredForUser(uid)
+        .then((groups) => {
+          if (!groups || groups.length === 0) return;
+          for (const { threadId, messageIds } of groups) {
+            for (const messageId of messageIds) {
+              const statusPayload = {
+                threadId,
+                messageId,
+                deliveryStatus: 'delivered',
+              };
+              io.to(roomName(threadId)).emit('thread_message_status', statusPayload);
+            }
+            void chatStore.getThreadMemberUserIds(threadId).then((memberIds) => {
+              for (const memberId of memberIds) {
+                if (memberId === uid) continue;
+                for (const messageId of messageIds) {
+                  io.to(userRoom(memberId)).emit('thread_message_status', {
+                    threadId,
+                    messageId,
+                    deliveryStatus: 'delivered',
+                  });
+                }
+              }
+            });
+          }
+        })
+        .catch((err) => console.error('[chat.socket] mark-delivered on connect failed', err));
     }
 
     socket.on('disconnect', () => {
@@ -45,9 +95,29 @@ function registerChatSocket(io, { verifyAccessToken }) {
       }
     });
 
-    socket.on('join_thread', (threadId) => {
+    socket.on('join_thread', async (threadId) => {
       if (typeof threadId !== 'string') return;
       socket.join(roomName(threadId));
+      if (socket.userId) {
+        const readerUserId = String(socket.userId);
+        const markResult = await chatStore.markThreadRead(threadId, readerUserId);
+        if (markResult.changed) {
+          notifyThreadsChanged();
+          io.to(roomName(threadId)).emit('thread_seen', {
+            threadId,
+            readerUserId,
+            seenMessageIds: markResult.seenMessageIds,
+          });
+          const memberUserIds = await chatStore.getThreadMemberUserIds(threadId);
+          for (const uid of memberUserIds) {
+            io.to(userRoom(uid)).emit('thread_seen', {
+              threadId,
+              readerUserId,
+              seenMessageIds: markResult.seenMessageIds,
+            });
+          }
+        }
+      }
     });
 
     socket.on('leave_thread', (threadId) => {
@@ -55,24 +125,126 @@ function registerChatSocket(io, { verifyAccessToken }) {
       socket.leave(roomName(threadId));
     });
 
+    socket.on('thread_push_mute', (payload) => {
+      if (!socket.userId) return;
+      const threadId = payload?.threadId;
+      if (typeof threadId !== 'string' || !threadId.trim()) return;
+      const muted = Boolean(payload?.muted);
+      notificationPrefsStore.setThreadPushMuted(String(socket.userId), threadId.trim(), muted);
+    });
+
+    socket.on('thread_push_mute_sync', (payload) => {
+      if (!socket.userId) return;
+      const raw = payload?.threadIds;
+      const threadIds = Array.isArray(raw)
+        ? raw.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean)
+        : [];
+      notificationPrefsStore.replaceThreadPushMutes(String(socket.userId), threadIds);
+    });
+
     socket.on('send_message', async (payload) => {
       try {
         const threadId = payload?.threadId;
         const text = payload?.text;
+        const clientTempId = payload?.clientTempId;
         if (typeof threadId !== 'string' || typeof text !== 'string' || !text.trim()) {
           return;
         }
         const msg = await chatStore.addMessage(threadId, text.trim(), socket.userId);
         if (!msg) return;
-        io.to(roomName(threadId)).emit('thread_message', { threadId, message: msg });
+        io.to(roomName(threadId)).emit('thread_message', { threadId, message: msg, clientTempId });
+        // Also emit per-user so active clients receive instantly even before/without room join.
+        const memberUserIds = await chatStore.getThreadMemberUserIds(threadId);
+        for (const uid of memberUserIds) {
+          io.to(userRoom(uid)).emit('thread_message', { threadId, message: msg, clientTempId });
+        }
+        if (socket.userId) {
+          const me = String(socket.userId);
+          const recipientIds = memberUserIds.filter((uid) => uid !== me);
+          const onlineRecipients = [];
+          for (const uid of recipientIds) {
+            const sockets = await io.in(userRoom(uid)).fetchSockets();
+            if (sockets.length > 0) onlineRecipients.push(uid);
+          }
+          if (onlineRecipients.length > 0) {
+            const changed = await chatStore.markMessageDelivered(msg.id, onlineRecipients);
+            if (changed) {
+              const statusPayload = { threadId, messageId: msg.id, deliveryStatus: 'delivered' };
+              io.to(roomName(threadId)).emit('thread_message_status', statusPayload);
+              io.to(userRoom(me)).emit('thread_message_status', statusPayload);
+            }
+          }
+        }
         notifyThreadsChanged();
         if (socket.userId) {
           const me = String(socket.userId);
           const other = await chatStore.getOtherDmMemberUserId(threadId, me);
-          if (other && other !== me && !presenceStore.isUserOnline(other)) {
-            const sender = await usersStore.findUserById(me);
-            void pushNotify.notifyChatMessage(other, sender?.name, msg.text, threadId);
+          if (other && other !== me) {
+            const viewing = await userIsViewingThread(io, other, threadId);
+            const pushMuted = notificationPrefsStore.isThreadPushMuted(other, threadId);
+            if (!viewing && !pushMuted) {
+              const sender = await usersStore.findUserById(me);
+              const badge = await chatStore.getTotalUnreadCountForUser(other);
+              void pushNotify.notifyChatMessage(other, sender?.name, msg.text, threadId, {
+                messageId: msg.id,
+                badge,
+              });
+            }
           }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    socket.on('mark_thread_read', async (threadId) => {
+      try {
+        if (!socket.userId || typeof threadId !== 'string') return;
+        const readerUserId = String(socket.userId);
+        const markResult = await chatStore.markThreadRead(threadId, readerUserId);
+        if (markResult.changed) {
+          notifyThreadsChanged();
+          io.to(roomName(threadId)).emit('thread_seen', {
+            threadId,
+            readerUserId,
+            seenMessageIds: markResult.seenMessageIds,
+          });
+          const memberUserIds = await chatStore.getThreadMemberUserIds(threadId);
+          for (const uid of memberUserIds) {
+            io.to(userRoom(uid)).emit('thread_seen', {
+              threadId,
+              readerUserId,
+              seenMessageIds: markResult.seenMessageIds,
+            });
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    socket.on('thread_activity', async (payload) => {
+      try {
+        if (!socket.userId) return;
+        const threadId = payload?.threadId;
+        const kind = payload?.kind;
+        const active = Boolean(payload?.active);
+        if (typeof threadId !== 'string') return;
+        if (kind !== 'typing' && kind !== 'speaking') return;
+        const memberUserIds = await chatStore.getThreadMemberUserIds(threadId);
+        const me = String(socket.userId);
+        if (!memberUserIds.includes(me)) return;
+        const eventPayload = {
+          threadId,
+          kind,
+          active,
+          fromUserId: me,
+          at: Date.now(),
+        };
+        socket.to(roomName(threadId)).emit('thread_activity', eventPayload);
+        for (const uid of memberUserIds) {
+          if (uid === me) continue;
+          io.to(userRoom(uid)).emit('thread_activity', eventPayload);
         }
       } catch (e) {
         console.error(e);
@@ -96,6 +268,17 @@ function registerChatSocket(io, { verifyAccessToken }) {
           fromUserId: String(socket.userId),
           payload: body,
         });
+        // Push an incoming-call alert so callee can answer from other apps/background.
+        if (body?.type === 'offer') {
+          const sender = await usersStore.findUserById(String(socket.userId));
+          const media = body?.media === 'video' ? 'video' : 'audio';
+          void pushNotify.notifyIncomingCall(other, {
+            callerName: sender?.name || 'Someone',
+            threadId,
+            media,
+            callId,
+          });
+        }
       } catch (e) {
         console.error(e);
       }

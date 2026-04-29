@@ -1,4 +1,4 @@
-import { useCallback, type ComponentProps } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   Alert,
   Linking,
@@ -15,9 +15,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import { useAppTheme, type ThemePreference } from '../context/ThemeContext';
 import type { ChatsStackParamList } from '../navigation/types';
-import { colors } from '../theme/colors';
 import { getApiBaseUrl } from '../config';
+import type { ComponentProps } from 'react';
 
 type Nav = NativeStackNavigationProp<ChatsStackParamList, 'Settings'>;
 
@@ -30,6 +31,8 @@ function SettingsRow({
   onPress,
   danger,
   showChevron = true,
+  colors,
+  rowPressedBg,
 }: {
   icon: Ion;
   label: string;
@@ -37,20 +40,27 @@ function SettingsRow({
   onPress: () => void;
   danger?: boolean;
   showChevron?: boolean;
+  colors: ReturnType<typeof useAppTheme>['colors'];
+  rowPressedBg: string;
 }) {
   return (
     <Pressable
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      style={({ pressed }) => [layoutStyles.row, pressed && { backgroundColor: rowPressedBg }]}
       onPress={onPress}
       android_ripple={{ color: '#00000012' }}
     >
-      <View style={[styles.iconWrap, danger && styles.iconWrapDanger]}>
+      <View
+        style={[
+          layoutStyles.iconWrap,
+          { backgroundColor: danger ? 'rgba(192, 57, 43, 0.1)' : 'rgba(18, 140, 126, 0.1)' },
+        ]}
+      >
         <Ionicons name={icon} size={22} color={danger ? '#C0392B' : colors.header} />
       </View>
-      <View style={styles.rowBody}>
-        <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>{label}</Text>
+      <View style={layoutStyles.rowBody}>
+        <Text style={[layoutStyles.rowLabel, { color: danger ? '#C0392B' : colors.textPrimary }]}>{label}</Text>
         {subtitle ? (
-          <Text style={styles.rowSubtitle} numberOfLines={2}>
+          <Text style={[layoutStyles.rowSubtitle, { color: colors.textSecondary }]} numberOfLines={2}>
             {subtitle}
           </Text>
         ) : null}
@@ -60,14 +70,56 @@ function SettingsRow({
   );
 }
 
-function SectionTitle({ children }: { children: string }) {
-  return <Text style={styles.sectionTitle}>{children}</Text>;
+function SectionTitle({ children, color }: { children: string; color: string }) {
+  return <Text style={[styles.sectionTitleBase, { color }]}>{children}</Text>;
+}
+
+function themeSubtitle(preference: ThemePreference, resolved: 'light' | 'dark'): string {
+  if (preference === 'light') return 'Light is on';
+  if (preference === 'dark') return 'Dark is on';
+  return `Following device (${resolved === 'dark' ? 'dark' : 'light'} now)`;
 }
 
 export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
   const { user, signOut } = useAuth();
+  const { colors, preference, setPreference, resolved } = useAppTheme();
+
+  const rowPressedBg = colors.rowPressedBackground;
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        scroll: {
+          flex: 1,
+          backgroundColor: colors.listBackground,
+        },
+        content: {
+          paddingTop: 12,
+          paddingHorizontal: 16,
+        },
+        card: {
+          backgroundColor: colors.cardBackground,
+          borderRadius: 14,
+          borderWidth: 1,
+          borderColor: colors.divider,
+          overflow: 'hidden',
+        },
+        hairline: {
+          height: StyleSheet.hairlineWidth,
+          backgroundColor: colors.divider,
+          marginLeft: 66,
+        },
+        staticRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          minHeight: 52,
+        },
+      }),
+    [colors],
+  );
 
   const openSystemSettings = useCallback(() => {
     if (Platform.OS === 'web') {
@@ -83,6 +135,15 @@ export function SettingsScreen() {
       { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
     ]);
   }, [signOut]);
+
+  const onThemePress = useCallback(() => {
+    Alert.alert('Appearance', 'Choose how RChat looks', [
+      { text: 'Light', onPress: () => setPreference('light') },
+      { text: 'Dark', onPress: () => setPreference('dark') },
+      { text: 'Use device setting', onPress: () => setPreference('system') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [setPreference]);
 
   const appVersion =
     Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? Constants.nativeBuildVersion ?? '—';
@@ -102,13 +163,15 @@ export function SettingsScreen() {
     >
       {user ? (
         <>
-          <SectionTitle>Account</SectionTitle>
+          <SectionTitle color={colors.textSecondary}>Account</SectionTitle>
           <View style={styles.card}>
             <SettingsRow
               icon="person-circle-outline"
               label="Profile"
               subtitle="Photo, name, and email"
               onPress={() => navigation.navigate('Profile')}
+              colors={colors}
+              rowPressedBg={rowPressedBg}
             />
             <View style={styles.hairline} />
             <SettingsRow
@@ -116,6 +179,8 @@ export function SettingsScreen() {
               label="Friend requests"
               subtitle="Incoming and outgoing requests"
               onPress={() => navigation.navigate('AddFriend')}
+              colors={colors}
+              rowPressedBg={rowPressedBg}
             />
             <View style={styles.hairline} />
             <SettingsRow
@@ -123,12 +188,26 @@ export function SettingsScreen() {
               label="Explore people"
               subtitle="Find others on this server"
               onPress={() => navigation.navigate('ExplorePeople')}
+              colors={colors}
+              rowPressedBg={rowPressedBg}
             />
           </View>
         </>
       ) : null}
 
-      <SectionTitle>Notifications</SectionTitle>
+      <SectionTitle color={colors.textSecondary}>Appearance</SectionTitle>
+      <View style={styles.card}>
+        <SettingsRow
+          icon="color-palette-outline"
+          label="Theme"
+          subtitle={themeSubtitle(preference, resolved)}
+          onPress={onThemePress}
+          colors={colors}
+          rowPressedBg={rowPressedBg}
+        />
+      </View>
+
+      <SectionTitle color={colors.textSecondary}>Notifications</SectionTitle>
       <View style={styles.card}>
         <SettingsRow
           icon="notifications-outline"
@@ -139,28 +218,30 @@ export function SettingsScreen() {
               : 'Open iOS or Android settings for RChat.'
           }
           onPress={openSystemSettings}
+          colors={colors}
+          rowPressedBg={rowPressedBg}
         />
       </View>
 
-      <SectionTitle>About</SectionTitle>
+      <SectionTitle color={colors.textSecondary}>About</SectionTitle>
       <View style={styles.card}>
         <View style={styles.staticRow}>
-          <View style={styles.iconWrap}>
+          <View style={[layoutStyles.iconWrap, { backgroundColor: 'rgba(18, 140, 126, 0.1)' }]}>
             <Ionicons name="phone-portrait-outline" size={22} color={colors.header} />
           </View>
-          <View style={styles.rowBody}>
-            <Text style={styles.rowLabel}>App version</Text>
-            <Text style={styles.rowSubtitle}>{appVersion}</Text>
+          <View style={layoutStyles.rowBody}>
+            <Text style={[layoutStyles.rowLabel, { color: colors.textPrimary }]}>App version</Text>
+            <Text style={[layoutStyles.rowSubtitle, { color: colors.textSecondary }]}>{appVersion}</Text>
           </View>
         </View>
         <View style={styles.hairline} />
         <View style={styles.staticRow}>
-          <View style={styles.iconWrap}>
+          <View style={[layoutStyles.iconWrap, { backgroundColor: 'rgba(18, 140, 126, 0.1)' }]}>
             <Ionicons name="cloud-outline" size={22} color={colors.header} />
           </View>
-          <View style={styles.rowBody}>
-            <Text style={styles.rowLabel}>Server</Text>
-            <Text style={styles.rowSubtitle} numberOfLines={1}>
+          <View style={layoutStyles.rowBody}>
+            <Text style={[layoutStyles.rowLabel, { color: colors.textPrimary }]}>Server</Text>
+            <Text style={[layoutStyles.rowSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
               {apiHost}
             </Text>
           </View>
@@ -174,66 +255,30 @@ export function SettingsScreen() {
           onPress={onSignOut}
           danger
           showChevron={false}
+          colors={colors}
+          rowPressedBg={rowPressedBg}
         />
       </View>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: colors.listBackground,
-  },
-  content: {
-    paddingTop: 12,
-    paddingHorizontal: 16,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 20,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    overflow: 'hidden',
-  },
+const layoutStyles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 14,
     minHeight: 52,
-  },
-  rowPressed: {
-    backgroundColor: '#F5F6F6',
-  },
-  staticRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    minHeight: 52,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   iconWrap: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: 'rgba(18, 140, 126, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
-  },
-  iconWrapDanger: {
-    backgroundColor: 'rgba(192, 57, 43, 0.1)',
   },
   rowBody: {
     flex: 1,
@@ -242,19 +287,21 @@ const styles = StyleSheet.create({
   rowLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  rowLabelDanger: {
-    color: '#C0392B',
   },
   rowSubtitle: {
     marginTop: 2,
     fontSize: 13,
-    color: colors.textSecondary,
   },
-  hairline: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.divider,
-    marginLeft: 66,
+});
+
+const styles = StyleSheet.create({
+  sectionTitleBase: {
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 20,
+    marginBottom: 8,
+    marginLeft: 4,
   },
 });

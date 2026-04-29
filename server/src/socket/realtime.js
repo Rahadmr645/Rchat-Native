@@ -34,9 +34,25 @@ function emitPresenceChanged(userId) {
   if (io && userId) io.emit('presence_changed', { userId: String(userId) });
 }
 
+/**
+ * @param {string} threadId
+ * @param {string[]} memberUserIds
+ * @param {{ threadId: string; messageIds: string[]; scope: 'me' | 'everyone' }} payload
+ */
+function emitThreadMessagesDeleted(threadId, memberUserIds, payload) {
+  if (!io) return;
+  const room = `thread:${threadId}`;
+  io.to(room).emit('thread_messages_deleted', payload);
+  const ids = Array.isArray(memberUserIds) ? memberUserIds : [];
+  for (const uid of ids) {
+    if (uid) io.to(`user:${uid}`).emit('thread_messages_deleted', payload);
+  }
+}
+
 module.exports = {
   setRealtime,
   notifyThreadsChanged,
   notifyThreadsChangedDebounced,
   emitPresenceChanged,
+  emitThreadMessagesDeleted,
 };

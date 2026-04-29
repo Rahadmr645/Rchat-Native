@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { patchMeAvatar, uploadUserAvatar } from '../network/authApi';
-import { colors } from '../theme/colors';
+import { useAppTheme } from '../context/ThemeContext';
 function letterFromUser(name: string, email: string): string {
   const n = name?.trim();
   if (n) return n.charAt(0).toUpperCase();
@@ -24,8 +24,116 @@ function letterFromUser(name: string, email: string): string {
 
 export function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const { user, token, setUserFromServer } = useAuth();
   const [busy, setBusy] = useState(false);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        screen: {
+          flex: 1,
+          backgroundColor: colors.listBackground,
+          paddingHorizontal: 24,
+        },
+        center: {
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        muted: {
+          color: colors.textSecondary,
+          fontSize: 16,
+        },
+        hero: {
+          alignItems: 'center',
+          marginBottom: 28,
+        },
+        avatarRing: {
+          width: 120,
+          height: 120,
+          borderRadius: 60,
+          overflow: 'hidden',
+          backgroundColor: colors.listAvatarPlaceholderBg,
+          marginBottom: 16,
+          borderWidth: 3,
+          borderColor: colors.cardBackground,
+        },
+        avatarImg: {
+          width: '100%',
+          height: '100%',
+        },
+        avatarFallback: {
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.header,
+        },
+        avatarLetter: {
+          fontSize: 48,
+          fontWeight: '700',
+          color: '#fff',
+        },
+        name: {
+          fontSize: 22,
+          fontWeight: '700',
+          color: colors.textPrimary,
+        },
+        email: {
+          marginTop: 6,
+          fontSize: 15,
+          color: colors.textSecondary,
+        },
+        busy: {
+          marginVertical: 12,
+        },
+        primaryBtn: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          backgroundColor: colors.header,
+          paddingVertical: 14,
+          borderRadius: 12,
+          marginBottom: 12,
+        },
+        primaryBtnPressed: {
+          opacity: 0.9,
+        },
+        primaryBtnText: {
+          color: '#fff',
+          fontSize: 17,
+          fontWeight: '600',
+        },
+        secondaryBtn: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          paddingVertical: 12,
+          borderRadius: 12,
+          backgroundColor: colors.cardBackground,
+          borderWidth: 1,
+          borderColor: colors.divider,
+        },
+        secondaryBtnPressed: {
+          opacity: 0.85,
+        },
+        secondaryBtnText: {
+          color: '#C0392B',
+          fontSize: 16,
+          fontWeight: '600',
+        },
+        hint: {
+          marginTop: 24,
+          fontSize: 13,
+          color: colors.textSecondary,
+          lineHeight: 19,
+          textAlign: 'center',
+        },
+      }),
+    [colors],
+  );
 
   const pickAndUpload = useCallback(async () => {
     if (!token || !user) {
@@ -154,106 +262,3 @@ export function ProfileScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.listBackground,
-    paddingHorizontal: 24,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  muted: {
-    color: colors.textSecondary,
-    fontSize: 16,
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-  avatarRing: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    overflow: 'hidden',
-    backgroundColor: '#DFE5E7',
-    marginBottom: 16,
-    borderWidth: 3,
-    borderColor: '#fff',
-  },
-  avatarImg: {
-    width: '100%',
-    height: '100%',
-  },
-  avatarFallback: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.header,
-  },
-  avatarLetter: {
-    fontSize: 48,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  name: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  email: {
-    marginTop: 6,
-    fontSize: 15,
-    color: colors.textSecondary,
-  },
-  busy: {
-    marginVertical: 12,
-  },
-  primaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: colors.header,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  primaryBtnPressed: {
-    opacity: 0.9,
-  },
-  primaryBtnText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  secondaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: colors.divider,
-  },
-  secondaryBtnPressed: {
-    opacity: 0.85,
-  },
-  secondaryBtnText: {
-    color: '#C0392B',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  hint: {
-    marginTop: 24,
-    fontSize: 13,
-    color: colors.textSecondary,
-    lineHeight: 19,
-    textAlign: 'center',
-  },
-});

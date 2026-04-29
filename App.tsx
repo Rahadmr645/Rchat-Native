@@ -4,16 +4,23 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
-import { colors } from './src/theme/colors';
+import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
+
+function ThemedStatusBar() {
+  const { resolved } = useAppTheme();
+  return <StatusBar style={resolved === 'dark' ? 'light' : 'dark'} />;
+}
 
 export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
-        <StatusBar style="auto" />
+        <ThemeProvider>
+          <AuthProvider>
+            <RootNavigator />
+          </AuthProvider>
+          <ThemedStatusBar />
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -22,6 +29,6 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.header,
+    backgroundColor: '#128C7E',
   },
 });

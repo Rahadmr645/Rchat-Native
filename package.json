@@ -9,7 +9,7 @@
     "prebuild:android": "expo prebuild --platform android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "server": "npm run dev --prefix server",
+    "server": "npm run server --prefix server",
     "server:start": "npm start --prefix server"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "@react-navigation/native-stack": "^7.14.11",
     "expo": "~54.0.33",
     "expo-av": "^16.0.8",
+    "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.13",
     "expo-device": "~7.1.0",
     "expo-image-picker": "^55.0.19",

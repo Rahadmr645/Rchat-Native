@@ -27,8 +27,24 @@ async function writeStoredExpoPushToken(token: string | null): Promise<void> {
 async function ensureAndroidDefaultChannel(): Promise<void> {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
-      name: 'Messages',
+      name: 'General',
       importance: Notifications.AndroidImportance.DEFAULT,
+    });
+    await Notifications.setNotificationChannelAsync('messages', {
+      name: 'Direct messages',
+      description: 'New chat messages (heads-up style alerts).',
+      importance: Notifications.AndroidImportance.MAX,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      vibrationPattern: [0, 220, 120, 220],
+      sound: 'default',
+    });
+    await Notifications.setNotificationChannelAsync('calls', {
+      name: 'Incoming calls',
+      importance: Notifications.AndroidImportance.MAX,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: false,
+      vibrationPattern: [0, 250, 150, 250],
+      sound: 'default',
     });
   }
 }

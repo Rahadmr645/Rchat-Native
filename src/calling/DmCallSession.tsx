@@ -127,6 +127,8 @@ export function DmCallSession({
   const [videoPaused, setVideoPaused] = useState(false);
   const [frontCamera, setFrontCamera] = useState(true);
   const [callSeconds, setCallSeconds] = useState(0);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [screenShareBusy, setScreenShareBusy] = useState(false);
 
   const pulse = useRef(new Animated.Value(0)).current;
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -135,6 +137,9 @@ export function DmCallSession({
   const pcRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const localStreamRef = useRef<any>(null);
+  /** Display capture stream from getDisplayMedia (separate from camera localStream). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const screenStreamRef = useRef<any>(null);
   const callIdRef = useRef<string | null>(null);
   const iceQueueRef = useRef<{ candidate: Record<string, unknown> }[]>([]);
 
@@ -193,6 +198,20 @@ export function DmCallSession({
     pulseLoopRef.current?.stop();
     pulseLoopRef.current = null;
     pulse.setValue(0);
+    try {
+      screenStreamRef.current?.getTracks().forEach((t: { stop: () => void }) => {
+        try {
+          t.stop();
+        } catch {
+          /* ignore */
+        }
+      });
+    } catch {
+      /* ignore */
+    }
+    screenStreamRef.current = null;
+    setScreenSharing(false);
+    setScreenShareBusy(false);
     try {
       pcRef.current?.getSenders().forEach((s: { track?: { stop: () => void } }) => {
         try {
@@ -557,7 +576,7 @@ export function DmCallSession({
   }, [mediaKind]);
 
   const flipCamera = useCallback(async () => {
-    if (mediaKind !== 'video') return;
+    if (mediaKind !== 'video' || screenSharing) return;
     const rtc = wrtcRef.current ?? (await loadRtc().catch(() => null));
     if (!rtc) return;
     const pc = pcRef.current;
@@ -595,9 +614,82 @@ export function DmCallSession({
     } catch (e) {
       console.warn('flip_camera', e);
     }
-  }, [frontCamera, loadRtc, mediaKind]);
+  }, [frontCamera, loadRtc, mediaKind, screenSharing]);
+
+  const toggleScreenShare = useCallback(async () => {
+    if (mediaKind !== 'video') return;
+    const pc = pcRef.current;
+    const localStream = localStreamRef.current;
+    if (!pc || !localStream) return;
+
+    if (screenSharing) {
+      setScreenShareBusy(true);
+      try {
+        const sender = pc.getSenders().find((s: { track?: { kind?: string } }) => s.track?.kind === 'video');
+        const cam = localStream.getVideoTracks()[0];
+        if (sender && cam) {
+          await sender.replaceTrack(cam);
+        }
+        try {
+          screenStreamRef.current?.getTracks().forEach((t: { stop: () => void }) => t.stop());
+        } catch {
+          /* ignore */
+        }
+        screenStreamRef.current = null;
+        setScreenSharing(false);
+        setOutgoingVideoEnabled(!videoPaused);
+      } catch (e) {
+        console.warn('stop_screen_share', e);
+        Alert.alert('Screen share', e instanceof Error ? e.message : String(e));
+      } finally {
+        setScreenShareBusy(false);
+      }
+      return;
+    }
+
+    setScreenShareBusy(true);
+    try {
+      const rtc = wrtcRef.current ?? (await loadRtc().catch(() => null));
+      if (!rtc) return;
+      if (!wrtcRef.current) setWrtc(rtc);
+
+      const displayConstraints =
+        Platform.OS === 'android' ? { android: { createConfigForDefaultDisplay: true as const } } : {};
+      // react-native-webrtc typings omit optional constraints; runtime accepts Android options.
+      const displayStream = await (
+        rtc.mediaDevices as { getDisplayMedia: (c?: object) => Promise<typeof localStreamRef.current> }
+      ).getDisplayMedia(displayConstraints);
+      const screenTrack = displayStream.getVideoTracks()[0];
+      if (!screenTrack) {
+        displayStream.getTracks().forEach((t: { stop: () => void }) => t.stop());
+        throw new Error('No screen video track');
+      }
+      const sender = pc.getSenders().find((s: { track?: { kind?: string } }) => s.track?.kind === 'video');
+      if (!sender) {
+        screenTrack.stop();
+        throw new Error('No video sender');
+      }
+      await sender.replaceTrack(screenTrack);
+      screenStreamRef.current = displayStream;
+      setScreenSharing(true);
+      screenTrack.enabled = !videoPaused;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg !== 'expo_go') {
+        Alert.alert(
+          'Screen share',
+          Platform.OS === 'ios'
+            ? `${msg}\n\nIf this fails, iOS may need a ReplayKit broadcast extension and ScreenCapturePickerView in the native project (see react-native-webrtc docs).`
+            : msg,
+        );
+      }
+    } finally {
+      setScreenShareBusy(false);
+    }
+  }, [mediaKind, screenSharing, setOutgoingVideoEnabled, setWrtc, videoPaused]);
 
   const RTCViewComp = wrtc?.RTCView ?? null;
+  const ScreenCapturePicker = wrtc?.ScreenCapturePickerView ?? null;
   const isVideo = mediaKind === 'video' && RTCViewComp != null;
   const hasRemote = Boolean(remoteUrl);
   const mainVideoUrl =
@@ -657,6 +749,23 @@ export function DmCallSession({
         {busy ? (
           <View style={styles.busyWrap}>
             <ActivityIndicator size="large" color={IMO.ring} />
+          </View>
+        ) : null}
+
+        {Platform.OS === 'ios' && isVideo && ScreenCapturePicker ? (
+          <View
+            style={{
+              position: 'absolute',
+              width: 2,
+              height: 2,
+              opacity: 0.02,
+              left: 0,
+              top: insets.top + 4,
+              zIndex: 3,
+            }}
+            pointerEvents="none"
+          >
+            <ScreenCapturePicker />
           </View>
         ) : null}
 
@@ -762,11 +871,41 @@ export function DmCallSession({
                     </View>
                     <Text style={styles.controlCap}>Video</Text>
                   </Pressable>
-                  <Pressable style={styles.controlHit} onPress={() => void flipCamera()}>
-                    <View style={styles.controlCircle}>
+                  <Pressable
+                    style={styles.controlHit}
+                    onPress={() => void flipCamera()}
+                    disabled={screenSharing}
+                  >
+                    <View style={[styles.controlCircle, screenSharing && styles.controlCircleDim]}>
                       <Ionicons name="camera-reverse" size={26} color="#fff" />
                     </View>
                     <Text style={styles.controlCap}>Flip</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.controlHit}
+                    onPress={() => void toggleScreenShare()}
+                    disabled={screenShareBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={screenSharing ? 'Stop sharing screen' : 'Share screen'}
+                  >
+                    <View
+                      style={[
+                        styles.controlCircle,
+                        screenSharing && styles.controlCircleActive,
+                        screenShareBusy && styles.controlCircleDim,
+                      ]}
+                    >
+                      {screenShareBusy ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Ionicons
+                          name={screenSharing ? 'stop-circle' : 'desktop-outline'}
+                          size={26}
+                          color="#fff"
+                        />
+                      )}
+                    </View>
+                    <Text style={styles.controlCap}>{screenSharing ? 'Stop share' : 'Share'}</Text>
                   </Pressable>
                 </>
               ) : null}

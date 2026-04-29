@@ -1,6 +1,6 @@
 const express = require('express');
 const chatStore = require('../services/chatStore.js');
-const { notifyThreadsChanged } = require('../socket/realtime.js');
+const { notifyThreadsChanged, emitThreadMessagesDeleted } = require('../socket/realtime.js');
 
 /**
  * @param {import('express').RequestHandler} authMiddleware
@@ -56,6 +56,45 @@ function createThreadsRouter(authMiddleware) {
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'failed_to_send' });
+    }
+  });
+
+  r.post('/threads/:threadId/messages/delete', authMiddleware, async (req, res) => {
+    try {
+      const { threadId } = req.params;
+      const rawIds = req.body?.messageIds;
+      const scope = req.body?.scope;
+      if (!Array.isArray(rawIds) || rawIds.length === 0) {
+        res.status(400).json({ error: 'messageIds is required' });
+        return;
+      }
+      if (scope !== 'me' && scope !== 'everyone') {
+        res.status(400).json({ error: 'scope must be me or everyone' });
+        return;
+      }
+      const messageIds = rawIds.map((x) => String(x).trim()).filter((x) => x.length > 0);
+      const result = await chatStore.deleteMessages(threadId, req.userId, messageIds, scope);
+      if (!result.ok) {
+        const code = result.error === 'forbidden' ? 403 : result.error === 'not_found' ? 404 : 400;
+        res.status(code).json({ error: result.error || 'delete_failed' });
+        return;
+      }
+      const memberIds = await chatStore.getThreadMemberUserIds(threadId);
+      emitThreadMessagesDeleted(threadId, memberIds, {
+        threadId: String(threadId),
+        messageIds: result.affectedIds || [],
+        scope,
+      });
+      notifyThreadsChanged();
+      res.json({
+        ok: true,
+        affectedIds: result.affectedIds,
+        scope: result.scope,
+        deletedCount: result.deletedCount,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'failed_to_delete_messages' });
     }
   });
 
