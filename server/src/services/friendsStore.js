@@ -122,7 +122,13 @@ async function listRequestsForUser(userId) {
     incoming.push({
       id: r._id.toString(),
       createdAt: r.createdAt.toISOString(),
-      from: { id: u._id.toString(), name: u.name, email: u.email },
+      from: {
+        id: u._id.toString(),
+        name: u.name,
+        email: u.email,
+        avatarUrl:
+          typeof u.avatarUrl === 'string' && u.avatarUrl.trim() ? u.avatarUrl.trim() : null,
+      },
     });
   }
   const outgoing = [];
@@ -132,7 +138,13 @@ async function listRequestsForUser(userId) {
     outgoing.push({
       id: r._id.toString(),
       createdAt: r.createdAt.toISOString(),
-      to: { id: u._id.toString(), name: u.name, email: u.email },
+      to: {
+        id: u._id.toString(),
+        name: u.name,
+        email: u.email,
+        avatarUrl:
+          typeof u.avatarUrl === 'string' && u.avatarUrl.trim() ? u.avatarUrl.trim() : null,
+      },
     });
   }
   return { incoming, outgoing };
@@ -161,8 +173,18 @@ async function acceptRequest(requestId, recipientUserId) {
   await chatStore.upsertDmThread(
     reqRow.fromUserId,
     reqRow.toUserId,
-    { name: fromUser.name },
-    { name: toUser.name },
+    {
+      name: fromUser.name,
+      avatarUrl:
+        typeof fromUser.avatarUrl === 'string' && fromUser.avatarUrl.trim()
+          ? fromUser.avatarUrl.trim()
+          : null,
+    },
+    {
+      name: toUser.name,
+      avatarUrl:
+        typeof toUser.avatarUrl === 'string' && toUser.avatarUrl.trim() ? toUser.avatarUrl.trim() : null,
+    },
   );
   return { ok: true };
 }

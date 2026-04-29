@@ -1,9 +1,12 @@
+import { Platform } from 'react-native';
 import { DEFAULT_API_PORT, getApiBaseUrl } from '../config';
 
 export type AuthUser = {
   id: string;
   email: string;
   name: string;
+  /** HTTPS URL from Cloudinary (or null if unset). */
+  avatarUrl?: string | null;
 };
 
 export class AuthApiError extends Error {
@@ -136,6 +139,67 @@ export async function fetchMe(token: string): Promise<AuthUser> {
   return body.user;
 }
 
+export async function patchMeAvatar(token: string, avatarUrl: string | null): Promise<AuthUser> {
+  const res = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ avatarUrl }),
+  });
+  const body = (await readBody(res)) as { error?: string; user?: AuthUser };
+  if (!res.ok) {
+    throw new AuthApiError(
+      mapAuthError(body?.error, res.status),
+      body?.error ?? 'unknown',
+      res.status,
+    );
+  }
+  if (!body.user) {
+    throw new AuthApiError('Unexpected server response', 'bad_response', res.status);
+  }
+  return body.user;
+}
+
+export async function uploadUserAvatar(
+  token: string,
+  params: { uri: string; fileName: string; mimeType?: string },
+): Promise<{ url: string; publicId: string }> {
+  const body = new FormData();
+  const name = params.fileName || `avatar-${Date.now()}.jpg`;
+  const type = params.mimeType || 'image/jpeg';
+
+  if (Platform.OS === 'web') {
+    const blob = await fetch(params.uri).then((r) => r.blob());
+    body.append('image', blob, name);
+  } else {
+    body.append(
+      'image',
+      {
+        uri: params.uri,
+        name,
+        type,
+      } as unknown as Blob,
+    );
+  }
+
+  const res = await fetch(`${getApiBaseUrl()}/api/uploads/avatar`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body,
+  });
+  const parsed = (await readBody(res)) as { error?: string; url?: string; publicId?: string };
+  if (!res.ok) {
+    throw new AuthApiError(
+      mapAuthError(String(parsed.error ?? 'unknown'), res.status),
+      String(parsed.error ?? 'unknown'),
+      res.status,
+    );
+  }
+  if (!parsed.url || !parsed.publicId) {
+    throw new AuthApiError('Unexpected server response', 'bad_response', res.status);
+  }
+  return { url: parsed.url, publicId: parsed.publicId };
+}
+
 function mapAuthError(code: string | undefined, status: number): string {
   switch (code) {
     case 'invalid_email':
@@ -155,6 +219,14 @@ function mapAuthError(code: string | undefined, status: number): string {
     case 'missing_token':
     case 'invalid_token':
       return 'Your session expired. Please sign in again.';
+    case 'avatarUrl_required':
+      return 'No profile field was sent.';
+    case 'invalid_avatar_url':
+      return 'Use a secure (https) image URL, or clear the photo.';
+    case 'profile_update_failed':
+      return 'Could not update your profile. Try again.';
+    case 'failed_to_upload_avatar':
+      return 'Could not upload the photo. Ensure the server has Cloudinary configured.';
     default:
       if (status === 502) {
         return 'Server temporarily unavailable (502). If you use Railway, verify the service is healthy and target port matches the app listen port.';

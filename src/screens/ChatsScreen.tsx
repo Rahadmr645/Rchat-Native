@@ -88,6 +88,7 @@ export function ChatsScreen() {
       title: thread.name,
       subtitle: thread.lastSeen,
       peerAvatarLetter: peerLetter,
+      peerAvatarUrl: thread.avatarUrl,
       otherUserId,
     });
   }

@@ -11,6 +11,7 @@ const friendsRouter = require('./routes/friends.routes.js');
 const pushRouter = require('./routes/push.routes.js');
 const { createThreadsRouter } = require('./routes/threads.routes.js');
 const { createWebrtcRouter } = require('./routes/webrtc.routes.js');
+const { createUploadsRouter } = require('./routes/uploads.routes.js');
 const { authMiddleware, verifyAccessToken } = require('./middleware/auth.middleware.js');
 const { registerChatSocket } = require('./socket/chat.socket.js');
 
@@ -44,6 +45,7 @@ async function start() {
   app.use('/api/push', pushRouter);
   app.use('/api', createThreadsRouter(authMiddleware));
   app.use('/api', createWebrtcRouter(authMiddleware));
+  app.use('/api', createUploadsRouter(authMiddleware));
 
   const server = http.createServer(app);
 

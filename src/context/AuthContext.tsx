@@ -24,6 +24,9 @@ type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name?: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Reload `/me` from the server (e.g. after changing profile photo). */
+  refreshUser: () => Promise<void>;
+  setUserFromServer: (user: AuthUser) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -94,6 +97,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, [token]);
 
+  const refreshUser = useCallback(async () => {
+    if (!token) return;
+    const me = await fetchMe(token);
+    setUser(me);
+  }, [token]);
+
+  const setUserFromServer = useCallback((next: AuthUser) => {
+    setUser(next);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -102,8 +115,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signOut,
+      refreshUser,
+      setUserFromServer,
     }),
-    [user, token, ready, signIn, signUp, signOut],
+    [user, token, ready, signIn, signUp, signOut, refreshUser, setUserFromServer],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -60,21 +60,55 @@ function dmThreadId(userIdA, userIdB) {
 /**
  * @param {string} userIdA
  * @param {string} userIdB
- * @param {{ name: string }} profileA
- * @param {{ name: string }} profileB
+ * @param {{ name: string; avatarUrl?: string | null }} profileA
+ * @param {{ name: string; avatarUrl?: string | null }} profileB
  */
 async function upsertDmThread(userIdA, userIdB, profileA, profileB) {
   const id = dmThreadId(userIdA, userIdB);
+  const urlA =
+    typeof profileA.avatarUrl === 'string' && profileA.avatarUrl.trim() ? profileA.avatarUrl.trim() : null;
+  const urlB =
+    typeof profileB.avatarUrl === 'string' && profileB.avatarUrl.trim() ? profileB.avatarUrl.trim() : null;
   const doc = {
     _id: id,
     kind: 'dm',
     members: [
-      { userId: String(userIdA), name: profileA.name, avatarLetter: avatarLetterFromName(profileA.name) },
-      { userId: String(userIdB), name: profileB.name, avatarLetter: avatarLetterFromName(profileB.name) },
+      {
+        userId: String(userIdA),
+        name: profileA.name,
+        avatarLetter: avatarLetterFromName(profileA.name),
+        avatarUrl: urlA,
+      },
+      {
+        userId: String(userIdB),
+        name: profileB.name,
+        avatarLetter: avatarLetterFromName(profileB.name),
+        avatarUrl: urlB,
+      },
     ],
   };
   await threadsCol().replaceOne({ _id: id }, doc, { upsert: true });
   return id;
+}
+
+/**
+ * @param {string} userId
+ * @param {string | null} avatarUrl
+ */
+async function updateMemberAvatarInAllDmThreads(userId, avatarUrl) {
+  const uid = String(userId);
+  const url =
+    avatarUrl == null || avatarUrl === ''
+      ? null
+      : String(avatarUrl).trim().slice(0, 2048);
+  const threads = await threadsCol().find({ 'members.userId': uid }).toArray();
+  for (const doc of threads) {
+    if (!Array.isArray(doc.members)) continue;
+    const members = doc.members.map((m) =>
+      String(m.userId) === uid ? { ...m, avatarUrl: url } : m,
+    );
+    await threadsCol().updateOne({ _id: doc._id }, { $set: { members } });
+  }
 }
 
 /**
@@ -132,6 +166,8 @@ async function getThreads(viewerUserId) {
       const other = t.members.find((m) => m.userId !== viewerUserId);
       const displayName = other?.name ?? t.name ?? 'Chat';
       const letter = other?.avatarLetter ?? avatarLetterFromName(displayName);
+      const avatarUrl =
+        typeof other?.avatarUrl === 'string' && other.avatarUrl.trim() ? other.avatarUrl.trim() : undefined;
       const last = await messagesCol().find({ threadId: id }).sort({ createdAt: -1 }).limit(1).next();
       let lastMessage = '';
       let timeLabel = '';
@@ -152,6 +188,7 @@ async function getThreads(viewerUserId) {
         id,
         name: displayName,
         avatarLetter: letter,
+        avatarUrl,
         lastMessage,
         timeLabel,
         lastSeen,
@@ -277,6 +314,7 @@ module.exports = {
   getMessages,
   addMessage,
   upsertDmThread,
+  updateMemberAvatarInAllDmThreads,
   getThreadPresenceForViewer,
   getOtherDmMemberUserId,
 };

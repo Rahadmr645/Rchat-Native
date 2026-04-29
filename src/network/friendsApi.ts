@@ -4,6 +4,7 @@ export type FriendRequestUser = {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string | null;
 };
 
 export type IncomingFriendRequest = {
@@ -29,6 +30,7 @@ export type ExploreUser = {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string | null;
   relation: ExploreRelation;
   incomingRequestId: string | null;
 };

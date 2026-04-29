@@ -50,6 +50,13 @@
     },
     "plugins": [
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow RChat to access your photos to set a profile picture.",
+          "cameraPermission": "Allow RChat to use the camera for your profile picture."
+        }
+      ],
+      [
         "@config-plugins/react-native-webrtc",
         {
           "cameraPermission": "Allow RChat to use the camera for video calls.",

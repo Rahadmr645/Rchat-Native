@@ -1,5 +1,7 @@
 export type ChatsStackParamList = {
   ChatsList: undefined;
+  Settings: undefined;
+  Profile: undefined;
   AddFriend: undefined;
   ExplorePeople: undefined;
   ChatRoom: {
@@ -8,6 +10,8 @@ export type ChatsStackParamList = {
     subtitle?: string;
     /** Letter shown on the peer avatar in the message list. */
     peerAvatarLetter?: string;
+    /** Profile image URL for the other participant (DM). */
+    peerAvatarUrl?: string;
     /** Other participant in a DM; used to refresh "last seen" / online in the header. */
     otherUserId?: string;
   };

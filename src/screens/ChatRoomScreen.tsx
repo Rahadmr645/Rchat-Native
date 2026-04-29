@@ -2,22 +2,24 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
+  LayoutChangeEvent,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getInitialMessages } from '../data/mockChats';
-import { fetchMessages, fetchThreadPresence } from '../network/chatApi';
+import { encodePhotoMessage } from '../lib/photoMessageCodec';
+import { encodeVoiceMessage } from '../lib/voiceMessageCodec';
+import { fetchMessages, fetchThreadPresence, uploadThreadImage, uploadThreadVoice } from '../network/chatApi';
 import { getChatSocket } from '../network/chatSocket';
 import { MessageBubble } from '../components/MessageBubble';
 import { Composer } from '../components/Composer';
@@ -47,10 +49,12 @@ function selfLetter(user: { name: string; email: string } | null): string {
 
 export function ChatRoomScreen() {
   const navigation = useNavigation<ChatRoomNav>();
-  const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const { params } = useRoute<ChatRoomRouteProp>();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(64);
+  const [windowHeight, setWindowHeight] = useState(() => Dimensions.get('window').height);
+  const baseWindowHeightRef = useRef(windowHeight);
   const { user, token } = useAuth();
   const threadId = params.threadId;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -158,6 +162,22 @@ export function ChatRoomScreen() {
   }, []);
 
   useEffect(() => {
+    const sub = Dimensions.addEventListener('change', ({ window }) => {
+      setWindowHeight(window.height);
+    });
+    return () => {
+      sub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Keep the baseline in sync when keyboard is closed.
+    if (keyboardHeight <= 0 && windowHeight > baseWindowHeightRef.current) {
+      baseWindowHeightRef.current = windowHeight;
+    }
+  }, [keyboardHeight, windowHeight]);
+
+  useEffect(() => {
     const id = setInterval(() => void refreshPresence(), 25000);
     return () => clearInterval(id);
   }, [refreshPresence]);
@@ -177,12 +197,12 @@ export function ChatRoomScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    (async () => {
+    const load = async () => {
+      setLoading(true);
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       try {
         const data = await fetchMessages(threadId, token);
         if (!cancelled) setMessages(data);
@@ -191,13 +211,25 @@ export function ChatRoomScreen() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    };
+    void load();
     return () => {
       cancelled = true;
     };
   }, [threadId, token]);
 
+  const refreshMessages = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await fetchMessages(threadId, token);
+      setMessages(data);
+    } catch {
+      /* keep current messages */
+    }
+  }, [threadId, token]);
+
   useEffect(() => {
+    if (!token) return;
     const socket = getChatSocket();
     const join = () => {
       socket.emit('join_thread', threadId);
@@ -222,13 +254,18 @@ export function ChatRoomScreen() {
       });
     };
     socket.on('thread_message', onThreadMessage);
+    const onThreadsChanged = () => {
+      void refreshMessages();
+    };
+    socket.on('threads_changed', onThreadsChanged);
 
     return () => {
       socket.emit('leave_thread', threadId);
       socket.off('connect', join);
       socket.off('thread_message', onThreadMessage);
+      socket.off('threads_changed', onThreadsChanged);
     };
-  }, [threadId, user]);
+  }, [threadId, user, token, refreshMessages]);
 
   const scrollToEnd = useCallback(() => {
     requestAnimationFrame(() => {
@@ -250,27 +287,119 @@ export function ChatRoomScreen() {
     getChatSocket().emit('send_message', { threadId, text });
   }
 
+  async function handleSendVoice(payload: { uri: string; durationMs: number }) {
+    if (!token) {
+      Alert.alert('Sign in required', 'You must be logged in to send voice messages.');
+      return;
+    }
+    try {
+      const extFromUri = /\.(m4a|caf|aac|mp3|wav|webm|3gp)$/i.exec(payload.uri)?.[1]?.toLowerCase();
+      const fileName = `voice-${Date.now()}.${extFromUri || 'm4a'}`;
+      const mimeType =
+        extFromUri === 'mp3'
+          ? 'audio/mpeg'
+          : extFromUri === 'wav'
+            ? 'audio/wav'
+            : extFromUri === 'webm'
+              ? 'audio/webm'
+              : 'audio/m4a';
+      const uploaded = await uploadThreadVoice(
+        { threadId, uri: payload.uri, fileName, mimeType },
+        token,
+      );
+      getChatSocket().emit('send_message', {
+        threadId,
+        text: encodeVoiceMessage({ u: uploaded.url, ms: payload.durationMs }),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      Alert.alert('Voice upload failed', msg);
+    }
+  }
+
+  async function handleSendPhoto(payload: {
+    uri: string;
+    fileName: string;
+    width: number;
+    height: number;
+    mimeType?: string;
+    caption?: string;
+  }) {
+    const cleanName = payload.fileName || 'photo.jpg';
+    const baseName = cleanName.replace(/\.[a-z0-9]+$/i, '');
+    const looksLikeCameraFile = /^[0-9_-]{6,}$/.test(baseName) || /^img[_-]?\d+/i.test(baseName);
+    const title = payload.caption?.trim() || (looksLikeCameraFile ? 'Photo' : baseName) || 'Photo';
+
+    const emitCloudPhoto = (cloudUrl: string) => {
+      getChatSocket().emit('send_message', {
+        threadId,
+        text: encodePhotoMessage({
+          u: cloudUrl,
+          n: cleanName,
+          t: title,
+          w: payload.width,
+          h: payload.height,
+        }),
+      });
+    };
+
+    if (!token) {
+      Alert.alert('Sign in required', 'You must be logged in to send photos.');
+      return;
+    }
+    try {
+      const uploaded = await uploadThreadImage(
+        {
+          threadId,
+          uri: payload.uri,
+          fileName: cleanName,
+          mimeType: payload.mimeType,
+        },
+        token,
+      );
+      emitCloudPhoto(uploaded.url);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      Alert.alert('Photo upload failed', `${msg}\n\nOnly Cloudinary URLs are sent so receivers can see images.`);
+    }
+  }
+
   const peerOnline = presenceSubtitle === 'online';
+  const isWeb = Platform.OS === 'web';
+  // Web: `Dimensions` vs visual viewport mismatch makes resize-based "keyboard lift" huge and
+  // floats the composer mid-screen. Native keeps resize heuristic for soft-keyboard shrink.
+  const keyboardLiftFromEvent = isWeb
+    ? Math.max(0, keyboardHeight)
+    : Math.max(0, keyboardHeight - insets.bottom);
+  const keyboardLiftFromResize = isWeb ? 0 : Math.max(0, baseWindowHeightRef.current - windowHeight);
+  const keyboardLift = Math.max(keyboardLiftFromEvent, keyboardLiftFromResize);
+  const keyboardGap = !isWeb && keyboardLift > 0 ? 48 : 0;
+  const composerBottom = isWeb ? insets.bottom : insets.bottom + keyboardLift + keyboardGap;
+  const webKeyboardInset = isWeb ? keyboardHeight : 0;
+  const listBottomInset = isWeb ? composerHeight + 20 : composerHeight + composerBottom;
+
+  function handleComposerLayout(e: LayoutChangeEvent) {
+    const next = Math.max(52, Math.round(e.nativeEvent.layout.height));
+    setComposerHeight((prev) => (prev === next ? prev : next));
+  }
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.safe, styles.flex]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
-    >
+    <View style={[styles.safe, styles.flex]}>
       {user ? (
         <DmCallSession
           threadId={threadId}
           myUserId={user.id}
           otherUserId={params.otherUserId}
           peerTitle={params.title}
+          peerAvatarLetter={params.peerAvatarLetter}
+          peerAvatarUrl={params.peerAvatarUrl}
           token={token}
           outgoingRequest={outgoingCall}
           onOutgoingRequestConsumed={() => setOutgoingCall(null)}
         />
       ) : null}
-      <View style={[styles.flex, { paddingBottom: insets.bottom }]}>
-        <View style={styles.chatArea}>
+      <View style={[styles.flex, isWeb && styles.webRoot]}>
+        <View style={[styles.chatArea, isWeb && styles.webChatArea]}>
           {loading ? (
             <View style={styles.loading}>
               <ActivityIndicator size="large" color={t.bubbleOutgoing} />
@@ -278,6 +407,7 @@ export function ChatRoomScreen() {
           ) : (
             <FlatList
               ref={listRef}
+              style={isWeb ? styles.webList : undefined}
               data={messages}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
@@ -285,18 +415,39 @@ export function ChatRoomScreen() {
                 <MessageBubble
                   message={item}
                   peerAvatarLetter={peerLetter}
+                  peerAvatarUrl={params.peerAvatarUrl}
                   selfAvatarLetter={meLetter}
+                  selfAvatarUrl={user?.avatarUrl}
                   peerOnline={peerOnline}
                 />
               )}
-              contentContainerStyle={styles.listContent}
+              contentContainerStyle={[styles.listContent, { paddingBottom: listBottomInset + 12 }]}
               onContentSizeChange={scrollToEnd}
             />
           )}
         </View>
-        <Composer onSend={handleSend} disabled={loading} />
+        <View
+          style={
+            isWeb
+              ? [
+                  styles.composerDockWeb,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 8) + webKeyboardInset,
+                  },
+                ]
+              : [styles.composerDock, { bottom: composerBottom }]
+          }
+          onLayout={handleComposerLayout}
+        >
+          <Composer
+            onSend={handleSend}
+            onSendVoice={handleSendVoice}
+            onSendPhoto={handleSendPhoto}
+            disabled={loading}
+          />
+        </View>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -355,5 +506,27 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     flexGrow: 1,
     justifyContent: 'flex-end',
+  },
+  composerDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+  webRoot: {
+    minHeight: 0,
+  },
+  webChatArea: {
+    flex: 1,
+    minHeight: 0,
+  },
+  webList: {
+    flex: 1,
+    minHeight: 0,
+  },
+  composerDockWeb: {
+    flexShrink: 0,
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
   },
 });

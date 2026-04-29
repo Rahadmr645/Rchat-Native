@@ -1,14 +1,6 @@
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import {
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,79 +16,28 @@ type MenuItem = {
   key: string;
   label: string;
   icon: IonName;
-  destructive?: boolean;
   onPress: () => void;
 };
 
 export function ChatsHeaderActions() {
   const navigation = useNavigation<Nav>();
-  const { signOut, user } = useAuth();
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   function closeMenu() {
     setMenuOpen(false);
   }
 
-  function confirmSignOut() {
-    closeMenu();
-    Alert.alert('Sign out?', 'You will need to sign in again to use RChat.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
-    ]);
-  }
-
+  /** Profile, friends, sign out, etc. live on the Settings screen. */
   const items: MenuItem[] = [
-    {
-      key: 'friend-requests',
-      label: 'Friend requests',
-      icon: 'person-add-outline',
-      onPress: () => {
-        closeMenu();
-        navigation.navigate('AddFriend');
-      },
-    },
-    {
-      key: 'explore-people',
-      label: 'Explore people',
-      icon: 'search-outline',
-      onPress: () => {
-        closeMenu();
-        navigation.navigate('ExplorePeople');
-      },
-    },
-    {
-      key: 'new-chat',
-      label: 'New chat',
-      icon: 'chatbubble-ellipses-outline',
-      onPress: () => {
-        closeMenu();
-        Alert.alert('New chat', 'Start a chat from contacts or search when that flow is ready.');
-      },
-    },
-    {
-      key: 'new-group',
-      label: 'New group',
-      icon: 'people-outline',
-      onPress: () => {
-        closeMenu();
-        Alert.alert('New group', 'Group creation can be wired here when the backend supports it.');
-      },
-    },
     {
       key: 'settings',
       label: 'Settings',
       icon: 'settings-outline',
       onPress: () => {
         closeMenu();
-        Alert.alert('Settings', 'App settings will live here.');
+        navigation.navigate('Settings');
       },
-    },
-    {
-      key: 'sign-out',
-      label: 'Sign out',
-      icon: 'log-out-outline',
-      destructive: true,
-      onPress: confirmSignOut,
     },
   ];
 
@@ -125,7 +66,7 @@ export function ChatsHeaderActions() {
           <View style={styles.sheetWrap} pointerEvents="box-none">
             <View style={styles.sheet}>
               <View style={styles.sheetHandle} />
-              <Text style={styles.sheetTitle}>Menu</Text>
+              <Text style={styles.sheetTitle}>Settings</Text>
               {user ? (
                 <Text style={styles.sheetSubtitle} numberOfLines={1}>
                   {user.name} · {user.email}
@@ -133,32 +74,19 @@ export function ChatsHeaderActions() {
               ) : null}
 
               <View style={styles.menuList}>
-                {items.map((item, index) => (
-                  <View key={item.key}>
-                    {index === items.length - 1 ? <View style={styles.menuDivider} /> : null}
-                    <Pressable
-                      style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
-                      onPress={item.onPress}
-                      android_ripple={{ color: '#00000014' }}
-                    >
-                      <View
-                        style={[
-                          styles.menuIconWrap,
-                          item.destructive ? styles.menuIconWrapDanger : undefined,
-                        ]}
-                      >
-                        <Ionicons
-                          name={item.icon}
-                          size={22}
-                          color={item.destructive ? '#C0392B' : colors.header}
-                        />
-                      </View>
-                      <Text style={[styles.menuLabel, item.destructive && styles.menuLabelDanger]}>
-                        {item.label}
-                      </Text>
-                      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-                    </Pressable>
-                  </View>
+                {items.map((item) => (
+                  <Pressable
+                    key={item.key}
+                    style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+                    onPress={item.onPress}
+                    android_ripple={{ color: '#00000014' }}
+                  >
+                    <View style={styles.menuIconWrap}>
+                      <Ionicons name={item.icon} size={22} color={colors.header} />
+                    </View>
+                    <Text style={styles.menuLabel}>{item.label}</Text>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                  </Pressable>
                 ))}
               </View>
 
@@ -223,12 +151,6 @@ const styles = StyleSheet.create({
   menuList: {
     marginTop: 8,
   },
-  menuDivider: {
-    height: 1,
-    backgroundColor: colors.divider,
-    marginVertical: 8,
-    marginHorizontal: 16,
-  },
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -247,17 +169,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 14,
   },
-  menuIconWrapDanger: {
-    backgroundColor: 'rgba(192, 57, 43, 0.1)',
-  },
   menuLabel: {
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
     color: colors.textPrimary,
-  },
-  menuLabelDanger: {
-    color: '#C0392B',
   },
   cancelRow: {
     marginTop: 4,

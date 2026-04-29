@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -23,11 +24,12 @@ import {
 } from '../network/friendsApi';
 import { colors } from '../theme/colors';
 
-function Avatar({ letter }: { letter: string }) {
+function Avatar({ letter, imageUri }: { letter: string; imageUri?: string | null }) {
   const ch = letter.trim().slice(0, 1).toUpperCase() || '?';
+  const uri = imageUri?.trim();
   return (
     <View style={styles.avatar}>
-      <Text style={styles.avatarLetter}>{ch}</Text>
+      {uri ? <Image source={{ uri }} style={styles.avatarImage} /> : <Text style={styles.avatarLetter}>{ch}</Text>}
     </View>
   );
 }
@@ -228,7 +230,7 @@ export function ExplorePeopleScreen() {
         }
         renderItem={({ item }) => (
           <View style={styles.row}>
-            <Avatar letter={item.name} />
+            <Avatar letter={item.name} imageUri={item.avatarUrl} />
             <View style={styles.rowBody}>
               <Text style={styles.rowName} numberOfLines={1}>
                 {item.name}
@@ -306,6 +308,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarLetter: {
     color: '#fff',

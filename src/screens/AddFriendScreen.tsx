@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -32,11 +33,12 @@ function shortDate(iso: string) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function Avatar({ letter }: { letter: string }) {
+function Avatar({ letter, imageUri }: { letter: string; imageUri?: string | null }) {
   const ch = letter.trim().slice(0, 1).toUpperCase() || '?';
+  const uri = imageUri?.trim();
   return (
     <View style={styles.avatar}>
-      <Text style={styles.avatarLetter}>{ch}</Text>
+      {uri ? <Image source={{ uri }} style={styles.avatarImage} /> : <Text style={styles.avatarLetter}>{ch}</Text>}
     </View>
   );
 }
@@ -191,7 +193,7 @@ export function AddFriendScreen() {
         {incoming.map((req) => (
           <View key={req.id} style={styles.requestCard}>
             <View style={styles.requestTop}>
-              <Avatar letter={req.from.name} />
+              <Avatar letter={req.from.name} imageUri={req.from.avatarUrl} />
               <View style={styles.requestBody}>
                 <Text style={styles.requestName} numberOfLines={1}>
                   {req.from.name}
@@ -261,7 +263,7 @@ export function AddFriendScreen() {
         {outgoing.map((req) => (
           <View key={req.id} style={styles.outgoingCard}>
             <View style={styles.requestTop}>
-              <Avatar letter={req.to.name} />
+              <Avatar letter={req.to.name} imageUri={req.to.avatarUrl} />
               <View style={styles.requestBody}>
                 <Text style={styles.requestName} numberOfLines={1}>
                   {req.to.name}
@@ -542,6 +544,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarLetter: {
     color: '#fff',

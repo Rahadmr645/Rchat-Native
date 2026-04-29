@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { ChatThread } from '../types/chat';
 import { colors } from '../theme/colors';
@@ -19,7 +19,11 @@ export function ChatListRow({ thread, onPress, deviceOnline = true }: Props) {
     >
       <View style={styles.avatarWrap}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{thread.avatarLetter}</Text>
+          {thread.avatarUrl ? (
+            <Image source={{ uri: thread.avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarText}>{thread.avatarLetter}</Text>
+          )}
         </View>
         {thread.lastSeen === 'online' && deviceOnline ? (
           <View style={styles.onlineBadge} accessibilityLabel="Online">
@@ -86,6 +90,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#DFE5E7',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   onlineBadge: {
     position: 'absolute',

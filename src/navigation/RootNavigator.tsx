@@ -7,7 +7,10 @@ import { ChatsScreen } from '../screens/ChatsScreen';
 import { AddFriendScreen } from '../screens/AddFriendScreen';
 import { ExplorePeopleScreen } from '../screens/ExplorePeopleScreen';
 import { ChatRoomScreen } from '../screens/ChatRoomScreen';
+import { ProfileScreen } from '../screens/ProfileScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 import { PlaceholderTabScreen } from '../screens/PlaceholderTabScreen';
+import { CallsScreen } from '../screens/CallsScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { ChatsHeaderActions } from '../components/ChatsHeaderActions';
@@ -53,6 +56,22 @@ function ChatsStackNavigator() {
           title: 'RChat',
           headerLargeTitle: Platform.OS === 'ios',
           headerRight: () => <ChatsHeaderActions />,
+        }}
+      />
+      <ChatsStack.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          title: 'Settings',
+          headerBackTitle: Platform.OS === 'ios' ? 'Chats' : undefined,
+        }}
+      />
+      <ChatsStack.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          title: 'Profile',
+          headerBackTitle: Platform.OS === 'ios' ? 'Chats' : undefined,
         }}
       />
       <ChatsStack.Screen
@@ -121,18 +140,12 @@ function MainTabs() {
       </Tabs.Screen>
       <Tabs.Screen
         name="CallsTab"
+        component={CallsScreen}
         options={{
           title: 'Calls',
           tabBarIcon: ({ color, size }) => <Ionicons name="call" size={size} color={color} />,
         }}
-      >
-        {() => (
-          <PlaceholderTabScreen
-            title="Calls"
-            description="Voice and video calls need a signaling server (e.g. WebRTC). This tab is ready for that flow."
-          />
-        )}
-      </Tabs.Screen>
+      />
     </Tabs.Navigator>
   );
 }

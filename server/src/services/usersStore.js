@@ -74,7 +74,12 @@ async function verifyPassword(email, passwordPlain) {
   if (!user) return null;
   const ok = await bcrypt.compare(passwordPlain, user.passwordHash);
   if (!ok) return null;
-  return { id: user._id.toString(), email: user.email, name: user.name };
+  return {
+    id: user._id.toString(),
+    email: user.email,
+    name: user.name,
+    avatarUrl: typeof user.avatarUrl === 'string' && user.avatarUrl.trim() ? user.avatarUrl.trim() : null,
+  };
 }
 
 /**
@@ -98,12 +103,32 @@ async function listPublicUsers(excludeUserId) {
   const filter =
     rawEx && ObjectId.isValid(rawEx) ? { _id: { $ne: new ObjectId(rawEx) } } : {};
   const docs = await usersCol()
-    .find(filter, { projection: { email: 1, name: 1 } })
+    .find(filter, { projection: { email: 1, name: 1, avatarUrl: 1 } })
     .sort({ name: 1 })
     .toArray();
   return docs
-    .map((u) => ({ id: u._id.toString(), name: u.name, email: u.email }))
+    .map((u) => ({
+      id: u._id.toString(),
+      name: u.name,
+      email: u.email,
+      avatarUrl: typeof u.avatarUrl === 'string' && u.avatarUrl.trim() ? u.avatarUrl.trim() : null,
+    }))
     .filter((row) => !rawEx || row.id !== rawEx);
+}
+
+/**
+ * @param {string} userId
+ * @param {string | null} avatarUrl
+ */
+async function setAvatarUrl(userId, avatarUrl) {
+  const { ObjectId } = require('mongodb');
+  if (!ObjectId.isValid(userId)) return false;
+  const url =
+    avatarUrl == null || avatarUrl === ''
+      ? null
+      : String(avatarUrl).trim().slice(0, 2048);
+  await usersCol().updateOne({ _id: new ObjectId(userId) }, { $set: { avatarUrl: url } });
+  return true;
 }
 
 const MAX_EXPO_PUSH_TOKENS = 12;
@@ -166,4 +191,5 @@ module.exports = {
   getExpoPushTokens,
   addExpoPushToken,
   removeExpoPushToken,
+  setAvatarUrl,
 };
