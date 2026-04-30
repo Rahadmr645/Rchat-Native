@@ -8,6 +8,7 @@ const {
   buildMessageDoc,
   DELETED_FOR_EVERYONE_PLACEHOLDER,
 } = require('../models/message.model.js');
+const { formatLineForViewer } = require('../lib/callLogMessage.js');
 
 /** SHA-256 of stored ciphertext fields (integrity / indexing; not the plaintext). */
 function digestCipherFields(iv, tag, cipher) {
@@ -215,7 +216,9 @@ async function getThreads(viewerUserId) {
           last.senderUserId != null && viewerUserId
             ? last.senderUserId === viewerUserId
             : Boolean(last.outgoing);
-        lastMessage = fromMe ? `You: ${text}` : text;
+        const callLine = viewerUserId ? formatLineForViewer(viewerUserId, text) : null;
+        lastMessage =
+          callLine != null ? callLine : fromMe ? `You: ${text}` : text;
         timeLabel = last.timeLabel;
       }
       let lastSeen = '';
@@ -248,7 +251,16 @@ async function getThreads(viewerUserId) {
     let timeLabel = '';
     if (last) {
       const text = displayTextForStoredMessage(last);
-      lastMessage = last.outgoing ? `You: ${text}` : text;
+      const callLine = viewerUserId ? formatLineForViewer(viewerUserId, text) : null;
+      if (callLine != null) {
+        lastMessage = callLine;
+      } else {
+        const fromMe =
+          last.senderUserId != null && viewerUserId
+            ? last.senderUserId === viewerUserId
+            : Boolean(last.outgoing);
+        lastMessage = fromMe ? `You: ${text}` : text;
+      }
       timeLabel = last.timeLabel;
     }
     out.push({

@@ -36,6 +36,7 @@ function pushBodyPreview(rawText) {
     }
   }
   if (text.startsWith('RCHAT_REPLY|')) return 'Reply';
+  if (text.startsWith('RCHAT_CALLLOG:')) return 'Call';
   const single = text.replace(/\s+/g, ' ');
   return single.length > 160 ? `${single.slice(0, 157)}...` : single;
 }
@@ -50,9 +51,20 @@ function androidTagForThread(threadId) {
 }
 
 /**
- * @param {Array<Record<string, unknown>>} messages
+ * @param {unknown} data
+ * @returns {Array<Record<string, unknown>>}
  */
-async function sendExpoBatch(messages) {
+function normalizePushTickets(data) {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object' && 'status' in data) return [data];
+  return [];
+}
+
+/**
+ * @param {string} userId
+ * @param {Array<Record<string, unknown> & { to?: string }>} messages
+ */
+async function sendExpoBatch(userId, messages) {
   if (!messages.length) return;
   const res = await fetch(EXPO_PUSH_URL, {
     method: 'POST',
@@ -63,9 +75,39 @@ async function sendExpoBatch(messages) {
     },
     body: JSON.stringify(messages),
   });
+  const text = await res.text().catch(() => '');
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
     console.error('[push] Expo push HTTP error', res.status, text.slice(0, 500));
+    return;
+  }
+  /** @type {{ data?: unknown; errors?: unknown }} */
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    console.error('[push] Expo push non-JSON body', text.slice(0, 300));
+    return;
+  }
+  if (json.errors && Array.isArray(json.errors) && json.errors.length) {
+    console.error('[push] Expo push batch errors', JSON.stringify(json.errors).slice(0, 1200));
+  }
+  const tickets = normalizePushTickets(json.data);
+  for (let i = 0; i < tickets.length; i++) {
+    const ticket = tickets[i];
+    const to = messages[i]?.to;
+    if (typeof to !== 'string' || !to) continue;
+    if (ticket?.status === 'error') {
+      const code = ticket?.details && typeof ticket.details === 'object' ? ticket.details.error : undefined;
+      const msg = typeof ticket.message === 'string' ? ticket.message : '';
+      console.warn('[push] Expo ticket error', String(code || 'unknown'), msg.slice(0, 200));
+      if (code === 'DeviceNotRegistered') {
+        try {
+          await usersStore.removeExpoPushToken(userId, to);
+        } catch (e) {
+          console.error('[push] remove dead token failed', e);
+        }
+      }
+    }
   }
 }
 
@@ -85,7 +127,10 @@ async function sendExpoBatch(messages) {
 async function notifyUser(userId, { title, body, data, channelId, badge, tag, threadIdentifier, subtitle }) {
   try {
     const tokens = (await usersStore.getExpoPushTokens(userId)).filter(isLikelyExpoPushToken);
-    if (!tokens.length) return;
+    if (!tokens.length) {
+      console.warn('[push] skip notify: no Expo push tokens on file for user', String(userId));
+      return;
+    }
     const dataFlat = {};
     if (data && typeof data === 'object') {
       for (const [k, v] of Object.entries(data)) {
@@ -117,7 +162,7 @@ async function notifyUser(userId, { title, body, data, channelId, badge, tag, th
       }
       return msg;
     });
-    await sendExpoBatch(messages);
+    await sendExpoBatch(userId, messages);
   } catch (e) {
     console.error('[push] notifyUser failed', e);
   }
@@ -169,6 +214,16 @@ function notifyChatMessage(toUserId, senderName, textPreview, threadId, opts = {
  * @param {string} toUserId
  * @param {{ callerName: string; threadId: string; media: 'audio' | 'video'; callId: string }} payload
  */
+/** Fire-and-forget test push to every Expo token saved for this user (for manual QA). */
+function notifyTest(toUserId) {
+  return notifyUser(toUserId, {
+    title: 'RChat',
+    body: 'Test notification — if you see this, push delivery is working.',
+    data: { type: 'push_test' },
+    channelId: 'default',
+  });
+}
+
 function notifyIncomingCall(toUserId, payload) {
   const callerName = String(payload?.callerName || 'Someone').trim() || 'Someone';
   const media = payload?.media === 'video' ? 'video' : 'audio';
@@ -193,4 +248,5 @@ module.exports = {
   notifyFriendRequest,
   notifyChatMessage,
   notifyIncomingCall,
+  notifyTest,
 };

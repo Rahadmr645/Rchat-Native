@@ -48,6 +48,12 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "extra": {
+      "apiUrl": "",
+      "eas": {
+        "projectId": ""
+      }
+    },
     "plugins": [
       [
         "expo-image-picker",
@@ -65,7 +71,8 @@
       ],
       "./plugins/withWebRtcScreenCapture",
       "./plugins/withAndroidStudioJbrForGradle",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-font"
     ]
   }
 }

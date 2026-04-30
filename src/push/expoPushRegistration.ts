@@ -7,6 +7,24 @@ import { getApiBaseUrl } from '../config';
 
 const STORAGE_KEY = 'rchat_expo_push_token';
 
+/** Expo Go from the store; Android remote push was removed here in SDK 53+. */
+function isExpoGoClient(): boolean {
+  return Constants.executionEnvironment === 'storeClient';
+}
+
+function readEasProjectId(): string | null {
+  const fromExtra =
+    (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
+  if (typeof fromExtra === 'string' && fromExtra.trim().length > 0) {
+    return fromExtra.trim();
+  }
+  const eas = Constants.easConfig as { projectId?: string } | null | undefined;
+  if (eas && typeof eas.projectId === 'string' && eas.projectId.trim().length > 0) {
+    return eas.projectId.trim();
+  }
+  return null;
+}
+
 async function readStoredExpoPushToken(): Promise<string | null> {
   try {
     const t = await AsyncStorage.getItem(STORAGE_KEY);
@@ -78,18 +96,31 @@ export function getExpoNotificationPermission(): Promise<Notifications.Permissio
 /**
  * Registers with the server when notification permission is already granted.
  * Does not show a permission dialog (safe to call on sign-in / app start).
- * Requires `expo.extra.eas.projectId` for a dev/production build.
+ * Requires `expo.extra.eas.projectId` (or EAS-injected id in release builds).
+ * @returns true if a token was obtained and POST /api/push/register succeeded
  */
-export async function syncExpoPushWithServer(apiBearerToken: string): Promise<void> {
-  if (!Device.isDevice) return;
-  if (Platform.OS === 'web') return;
+export async function syncExpoPushWithServer(apiBearerToken: string): Promise<boolean> {
+  if (!Device.isDevice) return true;
+  if (Platform.OS === 'web') return true;
+  if (Platform.OS === 'android' && isExpoGoClient()) {
+    console.warn(
+      '[push] Android remote push does not run inside Expo Go (SDK 53+). Install a dev build (`npm run android` / `expo run:android` or EAS development build) so your own app binary — with Firebase — is on the device, not the Expo Go app.',
+    );
+    return false;
+  }
 
   await ensureAndroidDefaultChannel();
   const { status } = await Notifications.getPermissionsAsync();
-  if (status !== 'granted') return;
+  if (status !== 'granted') {
+    console.warn('[push] permission not granted; notifications disabled until user allows');
+    return false;
+  }
 
   const ok = await registerExpoPushTokenWithServer(apiBearerToken);
-  if (!ok && __DEV__) console.warn('[push] sync register did not complete');
+  if (!ok) {
+    console.warn('[push] syncExpoPushWithServer: token not registered (see earlier [push] logs)');
+  }
+  return ok;
 }
 
 /**
@@ -99,6 +130,12 @@ export async function syncExpoPushWithServer(apiBearerToken: string): Promise<vo
 export async function requestExpoPushPermissionAndRegister(apiBearerToken: string): Promise<boolean> {
   if (!Device.isDevice) return false;
   if (Platform.OS === 'web') return false;
+  if (Platform.OS === 'android' && isExpoGoClient()) {
+    console.warn(
+      '[push] Use a development build on Android for remote notifications (Expo Go cannot provide them since SDK 53).',
+    );
+    return false;
+  }
 
   await ensureAndroidDefaultChannel();
 
@@ -114,28 +151,29 @@ export async function requestExpoPushPermissionAndRegister(apiBearerToken: strin
 }
 
 async function registerExpoPushTokenWithServer(apiBearerToken: string): Promise<boolean> {
-  const projectId =
-    (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ??
-    (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig?.projectId;
-  if (!projectId || typeof projectId !== 'string') {
-    if (__DEV__) {
-      console.warn(
-        '[push] Set expo.extra.eas.projectId (run `npx eas init`) so Expo can issue a push token.',
-      );
-    }
+  const projectId = readEasProjectId();
+  if (!projectId) {
+    console.warn(
+      '[push] Missing EAS project ID — run `npx eas init`, then rebuild. Set extra.eas.projectId in app.json or EAS_PROJECT_ID for CI builds.',
+    );
     return false;
+  }
+
+  const apiBase = getApiBaseUrl();
+  if (!__DEV__ && (apiBase.includes('example.com') || !/^https?:\/\//i.test(apiBase))) {
+    console.warn('[push] API base URL looks invalid; push register will fail:', apiBase);
   }
 
   let pushToken: string;
   try {
     pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
   } catch (e) {
-    if (__DEV__) console.warn('[push] getExpoPushTokenAsync failed', e);
+    console.warn('[push] getExpoPushTokenAsync failed — check EAS credentials (FCM/APNs) and projectId:', e);
     return false;
   }
 
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/push/register`, {
+    const res = await fetch(`${apiBase}/api/push/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -144,13 +182,14 @@ async function registerExpoPushTokenWithServer(apiBearerToken: string): Promise<
       body: JSON.stringify({ expoPushToken: pushToken }),
     });
     if (!res.ok) {
-      if (__DEV__) console.warn('[push] register failed HTTP', res.status);
+      const errBody = await res.text().catch(() => '');
+      console.warn('[push] register failed HTTP', res.status, errBody.slice(0, 400));
       return false;
     }
     await writeStoredExpoPushToken(pushToken);
     return true;
   } catch (e) {
-    if (__DEV__) console.warn('[push] register request failed', e);
+    console.warn('[push] register request failed', e);
     return false;
   }
 }

@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../context/ThemeContext';
 import type { ChatsStackParamList } from '../navigation/types';
 import type { ChatThread } from '../types/chat';
+import { formatCallLogLine, tryParseCallLog } from '../lib/callLogCodec';
 
 type Nav = NativeStackNavigationProp<ChatsStackParamList, 'ChatsList'>;
 
@@ -103,7 +104,13 @@ export function ChatsScreen() {
           message.senderUserId != null && user?.id
             ? message.senderUserId === user.id
             : Boolean(message.outgoing);
-        const nextLastMessage = fromMe ? `You: ${messageText}` : messageText;
+        const callEnv = user?.id ? tryParseCallLog(messageText) : null;
+        const nextLastMessage =
+          callEnv != null && user?.id
+            ? formatCallLogLine(user.id, callEnv)
+            : fromMe
+              ? `You: ${messageText}`
+              : messageText;
         const nextThread: ChatThread = {
           ...thread,
           lastMessage: nextLastMessage,

@@ -23,11 +23,11 @@ import { chatRoomTheme } from '../theme/chatRoomTheme';
 import { fetchThreads } from '../network/chatApi';
 import type { AuthStackParamList, ChatsStackParamList, MainTabParamList } from './types';
 
+const navigationRef = createNavigationContainerRef<MainTabParamList>();
+
 const ChatsStack = createNativeStackNavigator<ChatsStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
-
-const navigationRef = createNavigationContainerRef();
 
 function ChatsStackNavigator() {
   const { colors } = useAppTheme();
@@ -217,7 +217,7 @@ export function RootNavigator() {
         /* use defaults */
       }
 
-      navigationRef.navigate('ChatsTab' as never, {
+      navigationRef.navigate('ChatsTab', {
         screen: 'ChatRoom',
         params: {
           threadId,
@@ -233,7 +233,7 @@ export function RootNavigator() {
               }
             : {}),
         },
-      } as never);
+      });
 
       if (callId) lastHandledCallIdRef.current = callId;
     },

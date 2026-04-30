@@ -14,11 +14,13 @@ const { createWebrtcRouter } = require('./routes/webrtc.routes.js');
 const { createUploadsRouter } = require('./routes/uploads.routes.js');
 const { authMiddleware, verifyAccessToken } = require('./middleware/auth.middleware.js');
 const { registerChatSocket } = require('./socket/chat.socket.js');
+const { tryInitFirebaseAdmin } = require('./config/initFirebaseAdmin.js');
 
 const PORT = Number.parseInt(String(process.env.PORT || '3000'), 10) || 3000;
 
 async function start() {
   console.log('[startup] Booting server...');
+  tryInitFirebaseAdmin();
   console.log(`[startup] PORT=${process.env.PORT || '3000'} RAILWAY_ENVIRONMENT=${process.env.RAILWAY_ENVIRONMENT || 'false'}`);
   const { client, db } = await connectMongo();
   console.log('[startup] MongoDB connected.');

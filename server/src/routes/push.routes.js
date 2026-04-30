@@ -1,6 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth.middleware.js');
 const usersStore = require('../services/usersStore.js');
+const pushNotify = require('../services/pushNotify.js');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -22,6 +23,20 @@ router.post('/register', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'push_register_failed' });
+  }
+});
+
+/** POST with Bearer token — sends a test notification to this account’s registered Expo tokens. */
+router.post('/test', async (req, res) => {
+  try {
+    await pushNotify.notifyTest(req.userId);
+    res.json({
+      ok: true,
+      hint: 'Watch server logs for [push]. Put the app in background; iOS simulator does not get remote pushes.',
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'push_test_failed' });
   }
 });
 

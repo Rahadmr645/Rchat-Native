@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AuthUser } from '../network/authApi';
 import { fetchMe, loginAccount, registerAccount } from '../network/authApi';
@@ -71,6 +72,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!ready || !token) return;
     void syncExpoPushWithServer(token);
+    const retry = setTimeout(() => {
+      void syncExpoPushWithServer(token);
+    }, 2500);
+    return () => clearTimeout(retry);
+  }, [ready, token]);
+
+  useEffect(() => {
+    if (!ready || !token) return;
+    const onState = (s: AppStateStatus) => {
+      if (s === 'active') void syncExpoPushWithServer(token);
+    };
+    const sub = AppState.addEventListener('change', onState);
+    return () => sub.remove();
   }, [ready, token]);
 
   const signIn = useCallback(async (email: string, password: string) => {

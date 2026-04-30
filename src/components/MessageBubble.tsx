@@ -18,6 +18,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatCallLogLine, tryParseCallLog } from '../lib/callLogCodec';
 import { tryDecodePhotoMessage } from '../lib/photoMessageCodec';
 import { tryDecodeVoiceMessage } from '../lib/voiceMessageCodec';
 import type { Message } from '../types/chat';
@@ -41,6 +42,8 @@ type Props = {
   /** When set, a short press toggles selection instead of doing nothing (multi-select mode). */
   selectionMode?: boolean;
   onToggleSelect?: (message: Message) => void;
+  /** Current user id — required to render WhatsApp-style call log lines. */
+  myUserId?: string;
 };
 
 export type MessageAction =
@@ -391,12 +394,17 @@ export function MessageBubble({
   isStarred = false,
   selectionMode = false,
   onToggleSelect,
+  myUserId,
 }: Props) {
   const outgoing = message.outgoing;
   const isRevoked =
     Boolean(message.isDeletedForEveryone) || message.text === DELETED_FOR_EVERYONE_MESSAGE;
   const readBadgeAnim = useRef(new Animated.Value(message.sending ? 0.9 : 1)).current;
-  const showStatusBadge = outgoing && !isRevoked;
+  const replyEnvelope = parseReplyEnvelope(message.text);
+  const rawBody = replyEnvelope?.body ?? message.text;
+  const callLogEnv = myUserId ? tryParseCallLog(rawBody) : null;
+  const isCallLogRow = Boolean(callLogEnv && myUserId);
+  const showStatusBadge = outgoing && !isRevoked && !isCallLogRow;
   const isPending = outgoing && Boolean(message.sending);
   const deliveryStatus = message.deliveryStatus ?? (message.seenByOther ? 'seen' : 'sent');
   const isDelivered = outgoing && !message.sending && deliveryStatus === 'delivered';
@@ -408,10 +416,11 @@ export function MessageBubble({
   const tickSeenColor = '#53BDEB';
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const replyEnvelope = parseReplyEnvelope(message.text);
   const bodyText = replyEnvelope?.body ?? message.text;
-  const special = parseSpecialMessage(bodyText);
-  const showDefaultMeta = special?.kind !== 'photo';
+  const special = isCallLogRow ? null : parseSpecialMessage(bodyText);
+  const showDefaultMeta = special?.kind !== 'photo' && !isCallLogRow;
+  const callLogLine =
+    callLogEnv && myUserId ? formatCallLogLine(myUserId, callLogEnv) : '';
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState({ x: winW / 2, y: winH / 2 });
 
@@ -449,8 +458,8 @@ export function MessageBubble({
   reactionsTop = Math.max(safeTop, reactionsTop);
   const menuTop = reactionsTop + reactionBarHeight + reactionGap;
   const reactions = ['👍', '❤️', '😂', '😮', '😢', '🙏', '+'];
-  const menuItems = useMemo(
-    () => [
+  const menuItems = useMemo(() => {
+    const all = [
       { key: 'reply' as const, icon: 'return-up-back-outline' as const, label: 'Reply' },
       { key: 'copy' as const, icon: 'copy-outline' as const, label: 'Copy' },
       { key: 'forward' as const, icon: 'arrow-redo-outline' as const, label: 'Forward' },
@@ -461,9 +470,10 @@ export function MessageBubble({
       { key: 'share' as const, icon: 'share-social-outline' as const, label: 'Share' },
       { key: 'report' as const, icon: 'alert-circle-outline' as const, label: 'Report' },
       { key: 'delete' as const, icon: 'trash-outline' as const, label: 'Delete' },
-    ],
-    [],
-  );
+    ];
+    if (isCallLogRow) return all.filter((i) => i.key !== 'reply');
+    return all;
+  }, [isCallLogRow]);
 
   useEffect(() => {
     Animated.spring(readBadgeAnim, {
@@ -487,16 +497,20 @@ export function MessageBubble({
   }
 
   return (
-    <View style={[styles.row, outgoing ? styles.rowOutgoing : styles.rowIncoming]}>
-      {!outgoing ? (
+    <View
+      style={[
+        isCallLogRow ? styles.callLogOuter : styles.row,
+        !isCallLogRow ? (outgoing ? styles.rowOutgoing : styles.rowIncoming) : null,
+      ]}
+    >
+      {!isCallLogRow && !outgoing ? (
         <Avatar letter={peerAvatarLetter} imageUri={peerAvatarUrl} onlineBadge={!!peerOnline} />
-      ) : (
-        <View style={styles.avatarSpacer} />
-      )}
+      ) : null}
+      {!isCallLogRow && outgoing ? <View style={styles.avatarSpacer} /> : null}
       <Pressable
         style={[
-          styles.bubble,
-          outgoing ? styles.bubbleOutgoing : styles.bubbleIncoming,
+          isCallLogRow ? styles.callLogInner : styles.bubble,
+          !isCallLogRow && (outgoing ? styles.bubbleOutgoing : styles.bubbleIncoming),
           isSelected && styles.bubbleSelected,
         ]}
         onPress={() => {
@@ -505,7 +519,22 @@ export function MessageBubble({
         onLongPress={openContextMenu}
         delayLongPress={220}
       >
-        {special?.kind === 'photo' ? (
+        {isCallLogRow && callLogEnv ? (
+          <>
+            <Ionicons
+              name={callLogEnv.media === 'video' ? 'videocam' : 'call'}
+              size={17}
+              color="rgba(233,237,239,0.88)"
+            />
+            <View style={styles.callLogTextCol}>
+              <Text style={styles.callLogMain} numberOfLines={3}>
+                {callLogLine}
+              </Text>
+            </View>
+            <Text style={styles.callLogTimeChip}>{message.timeLabel}</Text>
+          </>
+        ) : null}
+        {!isCallLogRow && special?.kind === 'photo' ? (
           <Pressable
             style={[styles.photoCard, { width: photoWidth }]}
             onPress={() => {
@@ -552,7 +581,7 @@ export function MessageBubble({
           </Pressable>
         ) : null}
 
-        {special?.kind === 'voice' ? (
+        {!isCallLogRow && special?.kind === 'voice' ? (
           <VoiceNotePlayer
             uri={special.uri}
             durationLabel={special.durationLabel}
@@ -564,7 +593,7 @@ export function MessageBubble({
           />
         ) : null}
 
-        {replyEnvelope ? (
+        {!isCallLogRow && replyEnvelope ? (
           <View style={styles.replyQuoteBox}>
             <View style={styles.replyQuoteAccent} />
             <Text style={styles.replyQuoteText} numberOfLines={2}>
@@ -573,7 +602,7 @@ export function MessageBubble({
           </View>
         ) : null}
 
-        {!special ? (
+        {!isCallLogRow && !special ? (
           <Text style={[styles.text, isRevoked && styles.textRevoked]}>{bodyText}</Text>
         ) : null}
 
@@ -605,7 +634,7 @@ export function MessageBubble({
             ) : null}
           </View>
         ) : null}
-        {reactionEmoji ? (
+        {!isCallLogRow && reactionEmoji ? (
           <View
             style={[
               styles.attachedReaction,
@@ -616,7 +645,10 @@ export function MessageBubble({
           </View>
         ) : null}
       </Pressable>
-      {outgoing ? <Avatar letter={selfAvatarLetter} imageUri={selfAvatarUrl} /> : <View style={styles.avatarSpacer} />}
+      {!isCallLogRow && outgoing ? (
+        <Avatar letter={selfAvatarLetter} imageUri={selfAvatarUrl} />
+      ) : null}
+      {!isCallLogRow && !outgoing ? <View style={styles.avatarSpacer} /> : null}
       <Modal
         visible={menuVisible}
         transparent
@@ -688,6 +720,40 @@ const styles = StyleSheet.create({
   },
   rowOutgoing: {
     justifyContent: 'flex-end',
+  },
+  callLogOuter: {
+    width: '100%',
+    alignItems: 'center',
+    marginVertical: 6,
+    paddingHorizontal: 10,
+  },
+  callLogInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    maxWidth: '92%',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  callLogTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  callLogMain: {
+    fontSize: 13,
+    color: 'rgba(233,237,239,0.92)',
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  callLogTimeChip: {
+    fontSize: 12,
+    color: 'rgba(233,237,239,0.55)',
+    fontVariant: ['tabular-nums'],
+    flexShrink: 0,
   },
   avatarSpacer: {
     width: 36,

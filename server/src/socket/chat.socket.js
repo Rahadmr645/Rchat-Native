@@ -1,9 +1,10 @@
-const { setRealtime, notifyThreadsChanged } = require('./realtime.js');
+const { setRealtime, notifyThreadsChanged, notifyThreadsChangedDebounced } = require('./realtime.js');
 const chatStore = require('../services/chatStore.js');
 const presenceStore = require('../services/presenceStore.js');
 const usersStore = require('../services/usersStore.js');
 const pushNotify = require('../services/pushNotify.js');
 const notificationPrefsStore = require('../services/notificationPrefsStore.js');
+const { buildStoredText, normalizeClientSummary } = require('../lib/callLogMessage.js');
 
 function roomName(threadId) {
   return `thread:${threadId}`;
@@ -28,6 +29,57 @@ async function userIsViewingThread(io, userId, threadId) {
     return sockets.some((s) => s.userId != null && String(s.userId) === uid);
   } catch {
     return false;
+  }
+}
+
+/**
+ * @param {import('socket.io').Server} io
+ * @param {string} threadId
+ * @param {Awaited<ReturnType<typeof chatStore.addMessage>>} msg
+ * @param {string | undefined} senderUserId
+ * @param {string | undefined} clientTempId
+ * @param {{ skipPush?: boolean }} [opts]
+ */
+async function broadcastNewChatMessage(io, threadId, msg, senderUserId, clientTempId, opts) {
+  if (!msg) return;
+  const skipPush = Boolean(opts?.skipPush);
+  io.to(roomName(threadId)).emit('thread_message', { threadId, message: msg, clientTempId });
+  const memberUserIds = await chatStore.getThreadMemberUserIds(threadId);
+  for (const uid of memberUserIds) {
+    io.to(userRoom(uid)).emit('thread_message', { threadId, message: msg, clientTempId });
+  }
+  if (senderUserId) {
+    const me = String(senderUserId);
+    const recipientIds = memberUserIds.filter((uid) => uid !== me);
+    const onlineRecipients = [];
+    for (const uid of recipientIds) {
+      const sockets = await io.in(userRoom(uid)).fetchSockets();
+      if (sockets.length > 0) onlineRecipients.push(uid);
+    }
+    if (onlineRecipients.length > 0) {
+      const changed = await chatStore.markMessageDelivered(msg.id, onlineRecipients);
+      if (changed) {
+        const statusPayload = { threadId, messageId: msg.id, deliveryStatus: 'delivered' };
+        io.to(roomName(threadId)).emit('thread_message_status', statusPayload);
+        io.to(userRoom(me)).emit('thread_message_status', statusPayload);
+      }
+    }
+  }
+  notifyThreadsChangedDebounced();
+  if (skipPush || !senderUserId) return;
+  const me = String(senderUserId);
+  const other = await chatStore.getOtherDmMemberUserId(threadId, me);
+  if (other && other !== me) {
+    const viewing = await userIsViewingThread(io, other, threadId);
+    const pushMuted = notificationPrefsStore.isThreadPushMuted(other, threadId);
+    if (!viewing && !pushMuted) {
+      const sender = await usersStore.findUserById(me);
+      const badge = await chatStore.getTotalUnreadCountForUser(other);
+      void pushNotify.notifyChatMessage(other, sender?.name, msg.text, threadId, {
+        messageId: msg.id,
+        badge,
+      });
+    }
   }
 }
 
@@ -152,46 +204,8 @@ function registerChatSocket(io, { verifyAccessToken }) {
         }
         const msg = await chatStore.addMessage(threadId, text.trim(), socket.userId);
         if (!msg) return;
-        io.to(roomName(threadId)).emit('thread_message', { threadId, message: msg, clientTempId });
-        // Also emit per-user so active clients receive instantly even before/without room join.
-        const memberUserIds = await chatStore.getThreadMemberUserIds(threadId);
-        for (const uid of memberUserIds) {
-          io.to(userRoom(uid)).emit('thread_message', { threadId, message: msg, clientTempId });
-        }
-        if (socket.userId) {
-          const me = String(socket.userId);
-          const recipientIds = memberUserIds.filter((uid) => uid !== me);
-          const onlineRecipients = [];
-          for (const uid of recipientIds) {
-            const sockets = await io.in(userRoom(uid)).fetchSockets();
-            if (sockets.length > 0) onlineRecipients.push(uid);
-          }
-          if (onlineRecipients.length > 0) {
-            const changed = await chatStore.markMessageDelivered(msg.id, onlineRecipients);
-            if (changed) {
-              const statusPayload = { threadId, messageId: msg.id, deliveryStatus: 'delivered' };
-              io.to(roomName(threadId)).emit('thread_message_status', statusPayload);
-              io.to(userRoom(me)).emit('thread_message_status', statusPayload);
-            }
-          }
-        }
+        await broadcastNewChatMessage(io, threadId, msg, socket.userId, clientTempId, { skipPush: false });
         notifyThreadsChanged();
-        if (socket.userId) {
-          const me = String(socket.userId);
-          const other = await chatStore.getOtherDmMemberUserId(threadId, me);
-          if (other && other !== me) {
-            const viewing = await userIsViewingThread(io, other, threadId);
-            const pushMuted = notificationPrefsStore.isThreadPushMuted(other, threadId);
-            if (!viewing && !pushMuted) {
-              const sender = await usersStore.findUserById(me);
-              const badge = await chatStore.getTotalUnreadCountForUser(other);
-              void pushNotify.notifyChatMessage(other, sender?.name, msg.text, threadId, {
-                messageId: msg.id,
-                badge,
-              });
-            }
-          }
-        }
       } catch (e) {
         console.error(e);
       }
@@ -297,6 +311,13 @@ function registerChatSocket(io, { verifyAccessToken }) {
           callId,
           byUserId: String(socket.userId),
         });
+        const members = await chatStore.getThreadMemberUserIds(threadId);
+        const norm = normalizeClientSummary(payload?.summary ?? payload?.callSummary, String(socket.userId), members);
+        if (norm) {
+          const stored = buildStoredText({ ...norm, outcome: 'ended' });
+          const msg = await chatStore.addMessage(threadId, stored, String(socket.userId));
+          await broadcastNewChatMessage(io, threadId, msg, String(socket.userId), undefined, { skipPush: true });
+        }
       } catch (e) {
         console.error(e);
       }
@@ -315,6 +336,13 @@ function registerChatSocket(io, { verifyAccessToken }) {
           callId,
           byUserId: String(socket.userId),
         });
+        const members = await chatStore.getThreadMemberUserIds(threadId);
+        const norm = normalizeClientSummary(payload?.summary ?? payload?.callSummary, String(socket.userId), members);
+        if (norm) {
+          const stored = buildStoredText({ ...norm, outcome: 'declined', durationSec: 0 });
+          const msg = await chatStore.addMessage(threadId, stored, String(socket.userId));
+          await broadcastNewChatMessage(io, threadId, msg, String(socket.userId), undefined, { skipPush: true });
+        }
       } catch (e) {
         console.error(e);
       }

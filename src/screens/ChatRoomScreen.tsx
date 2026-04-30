@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  type AppStateStatus,
   BackHandler,
   Dimensions,
   FlatList,
@@ -543,6 +545,23 @@ export function ChatRoomScreen() {
     return () => sub.remove();
   }, [selectionModeActive]);
 
+  /** Leave thread room while app is backgrounded so the server can send push (it skips push when "viewing"). */
+  useEffect(() => {
+    if (!token) return;
+    const socket = getChatSocket();
+    const tid = String(threadId);
+    const onAppState = (state: AppStateStatus) => {
+      if (state === 'active') {
+        socket.emit('join_thread', tid);
+        socket.emit('mark_thread_read', tid);
+      } else {
+        socket.emit('leave_thread', tid);
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, [token, threadId]);
+
   useEffect(() => {
     if (!token) return;
     const socket = getChatSocket();
@@ -965,6 +984,7 @@ export function ChatRoomScreen() {
               renderItem={({ item }) => (
                 <MessageBubble
                   message={item}
+                  myUserId={user?.id}
                   peerAvatarLetter={peerLetter}
                   peerAvatarUrl={params.peerAvatarUrl}
                   selfAvatarLetter={meLetter}

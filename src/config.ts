@@ -88,6 +88,16 @@ export function getApiBaseUrl(): string {
   }
 
   if (!__DEV__) {
+    const extra = Constants.expoConfig?.extra as { apiUrl?: string } | undefined;
+    const rawExtra = typeof extra?.apiUrl === 'string' ? extra.apiUrl.trim() : '';
+    if (rawExtra) {
+      let u = rawExtra.replace(/\/+$/, '');
+      if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+      return u;
+    }
+    console.warn(
+      '[RChat] Production API URL missing. Set EXPO_PUBLIC_API_URL at build time, EAS env, or expo.extra.apiUrl (see app.config.js).',
+    );
     return 'https://example.com';
   }
 

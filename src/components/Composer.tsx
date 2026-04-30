@@ -230,14 +230,11 @@ export function Composer({
     if (!recording || !onSendVoice) return;
     setVoiceBusy(true);
     try {
-      await recording.stopAndUnloadAsync();
-      const status = await recording.getStatusAsync();
-      const uri = recording.getURI();
+      const status = await recording.stopAndUnloadAsync();
+      const uri = recording.getURI() ?? (typeof status.uri === 'string' ? status.uri : null);
       setRecording(null);
       const durationMs =
-        'durationMillis' in status && typeof status.durationMillis === 'number'
-          ? Math.max(0, status.durationMillis)
-          : 0;
+        typeof status.durationMillis === 'number' ? Math.max(0, status.durationMillis) : 0;
       if (!uri) {
         Alert.alert('Voice message', 'Could not read recorded audio.');
         return;
@@ -328,8 +325,8 @@ export function Composer({
               <Text style={styles.recordingTimer}>{formatRecordTimer(recordingMs)}</Text>
             </View>
             <View style={styles.slideHintRow}>
-              <Ionicons name="chevron-back" size={14} color="rgba(255,255,255,0.45)" />
-              <Text style={styles.slideHint}>Slide to cancel</Text>
+              <Ionicons name="trash-outline" size={14} color="rgba(255,255,255,0.45)" />
+              <Text style={styles.slideHint}>Tap trash to discard</Text>
             </View>
             <View style={styles.recWave}>
               {[12, 18, 10, 22, 14, 20, 11, 16, 13].map((h, i) => (
@@ -367,7 +364,12 @@ export function Composer({
               {replyPreviewText}
             </Text>
           </View>
-          <Pressable onPress={onClearReply} hitSlop={8} style={styles.replyClose} accessibilityLabel="Cancel reply">
+          <Pressable
+            onPress={() => onClearReply?.()}
+            hitSlop={8}
+            style={styles.replyClose}
+            accessibilityLabel="Cancel reply"
+          >
             <Ionicons name="close" size={18} color="rgba(233,237,239,0.72)" />
           </Pressable>
         </View>

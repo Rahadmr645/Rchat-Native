@@ -141,6 +141,9 @@ export function DmCallSession({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const screenStreamRef = useRef<any>(null);
   const callIdRef = useRef<string | null>(null);
+  /** Who placed the call (offer); used for chat call-log rows. */
+  const callerUserIdRef = useRef<string | null>(null);
+  const callSecondsRef = useRef(0);
   const iceQueueRef = useRef<{ candidate: Record<string, unknown> }[]>([]);
 
   const incomingRef = useRef(incoming);
@@ -161,14 +164,36 @@ export function DmCallSession({
   const emitCallEnd = useCallback(() => {
     const callId = callIdRef.current;
     if (!callId) return;
-    getChatSocket().emit('call_end', { threadId, callId });
-  }, [threadId]);
+    const callerUserId = callerUserIdRef.current || myUserId;
+    getChatSocket().emit('call_end', {
+      threadId,
+      callId,
+      summary: {
+        callerUserId,
+        media: mediaKind,
+        durationSec: callSecondsRef.current,
+        outcome: 'ended',
+      },
+    });
+  }, [threadId, myUserId, mediaKind]);
 
   const emitCallDecline = useCallback(() => {
     const callId = callIdRef.current;
     if (!callId) return;
-    getChatSocket().emit('call_decline', { threadId, callId });
-  }, [threadId]);
+    const offer = incomingRef.current;
+    const callerUserId = offer?.fromUserId || callerUserIdRef.current || myUserId;
+    const media = offer?.media ?? mediaKind;
+    getChatSocket().emit('call_decline', {
+      threadId,
+      callId,
+      summary: {
+        callerUserId,
+        media,
+        durationSec: 0,
+        outcome: 'declined',
+      },
+    });
+  }, [threadId, myUserId, mediaKind]);
 
   const setMicEnabled = useCallback((enabled: boolean) => {
     const stream = localStreamRef.current;
@@ -234,6 +259,7 @@ export function DmCallSession({
     setLocalUrl(null);
     setRemoteUrl(null);
     callIdRef.current = null;
+    callerUserIdRef.current = null;
     iceQueueRef.current = [];
     setWrtc(null);
     setMuted(false);
@@ -339,6 +365,7 @@ export function DmCallSession({
       setBusy(true);
       setMediaKind(media);
       setMode('outgoing');
+      callerUserIdRef.current = myUserId;
       const callId = newCallId();
       callIdRef.current = callId;
       await applyCallAudioMode(speakerOn);
@@ -376,7 +403,7 @@ export function DmCallSession({
         setBusy(false);
       }
     },
-    [attachPeer, emitCallPeer, loadRtc, otherUserId, speakerOn, teardown, token],
+    [attachPeer, emitCallPeer, loadRtc, myUserId, otherUserId, speakerOn, teardown, token],
   );
 
   const acceptIncoming = useCallback(async () => {
@@ -443,6 +470,7 @@ export function DmCallSession({
 
       if (type === 'offer' && typeof sdp === 'string') {
         callIdRef.current = msg.callId;
+        callerUserIdRef.current = String(msg.fromUserId);
         setMediaKind(media === 'video' ? 'video' : 'audio');
         setIncoming({
           callId: msg.callId,
@@ -545,6 +573,10 @@ export function DmCallSession({
     const id = setInterval(() => setCallSeconds((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [mode]);
+
+  useEffect(() => {
+    callSecondsRef.current = callSeconds;
+  }, [callSeconds]);
 
   const visible = mode !== 'hidden';
 
@@ -691,6 +723,8 @@ export function DmCallSession({
   const RTCViewComp = wrtc?.RTCView ?? null;
   const ScreenCapturePicker = wrtc?.ScreenCapturePickerView ?? null;
   const isVideo = mediaKind === 'video' && RTCViewComp != null;
+  /** Outgoing / connected video: full-bleed remote (large) + local PiP like IMO. */
+  const videoFullBleed = isVideo && (mode === 'outgoing' || mode === 'connected');
   const hasRemote = Boolean(remoteUrl);
   const mainVideoUrl =
     isVideo && (mode === 'connected' || mode === 'outgoing')
@@ -730,25 +764,92 @@ export function DmCallSession({
       onRequestClose={handleHangup}
     >
       {visible ? <StatusBar style="light" /> : null}
-      <View style={[styles.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }]}>
-        <View style={styles.bgWash} />
-        <View style={styles.bgGlow} />
+      <View
+        style={[
+          styles.root,
+          videoFullBleed ? styles.rootVideoImo : null,
+          {
+            paddingTop: videoFullBleed ? 0 : insets.top + 8,
+            paddingBottom: videoFullBleed ? 0 : insets.bottom + 16,
+          },
+        ]}
+      >
+        {!videoFullBleed ? <View style={styles.bgWash} /> : null}
+        {!videoFullBleed ? <View style={styles.bgGlow} /> : null}
 
-        <View style={styles.topMeta}>
-          <Text style={styles.peerName} numberOfLines={1}>
-            {peerTitle}
-          </Text>
-          <Text style={styles.statusText} numberOfLines={1}>
-            {statusLine}
-          </Text>
-          {mode === 'connected' && mediaKind === 'audio' ? (
-            <Text style={styles.encryptedHint}>End-to-end encrypted</Text>
-          ) : null}
-        </View>
+        {videoFullBleed ? (
+          <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+            <View style={styles.videoFill}>
+              {mainVideoUrl ? (
+                <RTCViewComp
+                  streamURL={mainVideoUrl}
+                  style={styles.remoteFullBleed}
+                  objectFit="cover"
+                  zOrder={0}
+                />
+              ) : (
+                <View style={styles.remotePlaceholder}>
+                  <Text style={styles.placeholderText}>Starting camera…</Text>
+                </View>
+              )}
+              {pipVideoUrl ? (
+                <RTCViewComp
+                  streamURL={pipVideoUrl}
+                  style={[
+                    styles.pipImo,
+                    {
+                      top: Math.max(insets.top, 8) + 44,
+                    },
+                  ]}
+                  objectFit="cover"
+                  mirror={frontCamera}
+                  zOrder={1}
+                />
+              ) : null}
+              {mode === 'outgoing' && !hasRemote ? (
+                <View style={[styles.outgoingVideoBadge, { top: Math.max(insets.top, 8) + 8 }]} pointerEvents="none">
+                  <Ionicons name="videocam" size={18} color="#fff" />
+                  <Text style={styles.outgoingVideoBadgeText}>You</Text>
+                </View>
+              ) : null}
+            </View>
+            <View
+              style={[styles.videoTopScrim, { paddingTop: Math.max(insets.top, 8) + 6 }]}
+              pointerEvents="box-none"
+            >
+              <Text style={styles.peerNameVideoOverlay} numberOfLines={1}>
+                {peerTitle}
+              </Text>
+              <Text style={styles.statusTextVideoOverlay} numberOfLines={1}>
+                {statusLine}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={styles.topMeta}>
+              <Text style={styles.peerName} numberOfLines={1}>
+                {peerTitle}
+              </Text>
+              <Text style={styles.statusText} numberOfLines={1}>
+                {statusLine}
+              </Text>
+              {mode === 'connected' && mediaKind === 'audio' ? (
+                <Text style={styles.encryptedHint}>End-to-end encrypted</Text>
+              ) : null}
+            </View>
 
-        {busy ? (
-          <View style={styles.busyWrap}>
-            <ActivityIndicator size="large" color={IMO.ring} />
+            {busy ? (
+              <View style={styles.busyWrap}>
+                <ActivityIndicator size="large" color={IMO.ring} />
+              </View>
+            ) : null}
+          </>
+        )}
+
+        {videoFullBleed && busy ? (
+          <View style={styles.busyVideoOverlay} pointerEvents="none">
+            <ActivityIndicator size="large" color="#fff" />
           </View>
         ) : null}
 
@@ -761,7 +862,7 @@ export function DmCallSession({
               opacity: 0.02,
               left: 0,
               top: insets.top + 4,
-              zIndex: 3,
+              zIndex: 20,
             }}
             pointerEvents="none"
           >
@@ -769,32 +870,7 @@ export function DmCallSession({
           </View>
         ) : null}
 
-        {isVideo && (mode === 'outgoing' || mode === 'connected') ? (
-          <View style={styles.videoStage}>
-            {mainVideoUrl ? (
-              <RTCViewComp streamURL={mainVideoUrl} style={styles.remote} objectFit="cover" zOrder={0} />
-            ) : (
-              <View style={styles.remotePlaceholder}>
-                <Text style={styles.placeholderText}>Starting camera…</Text>
-              </View>
-            )}
-            {pipVideoUrl ? (
-              <RTCViewComp
-                streamURL={pipVideoUrl}
-                style={styles.pip}
-                objectFit="cover"
-                mirror={frontCamera}
-                zOrder={1}
-              />
-            ) : null}
-            {mode === 'outgoing' && !hasRemote ? (
-              <View style={styles.outgoingVideoBadge} pointerEvents="none">
-                <Ionicons name="videocam" size={18} color="#fff" />
-                <Text style={styles.outgoingVideoBadgeText}>You</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : (
+        {!videoFullBleed ? (
           <View style={styles.audioStage}>
             <View style={styles.avatarRingHost}>
               <Animated.View
@@ -821,10 +897,16 @@ export function DmCallSession({
               <Text style={styles.audioSub}>Secure WebRTC</Text>
             ) : null}
           </View>
-        )}
+        ) : null}
 
         {mode === 'incoming' && incoming ? (
-          <View style={styles.incomingActions}>
+          <View
+            style={[
+              styles.incomingActions,
+              videoFullBleed ? styles.callDockVideo : null,
+              { paddingBottom: videoFullBleed ? Math.max(insets.bottom, 12) + 8 : undefined },
+            ]}
+          >
             <Pressable style={styles.incomingBtnWrap} onPress={declineIncoming}>
               <View style={[styles.incomingCircle, styles.declineCircle]}>
                 <Ionicons name="call" size={32} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
@@ -839,7 +921,13 @@ export function DmCallSession({
             </Pressable>
           </View>
         ) : mode !== 'incoming' ? (
-          <View style={styles.controlsColumn}>
+          <View
+            style={[
+              styles.controlsColumn,
+              videoFullBleed ? styles.callDockVideo : null,
+              { paddingBottom: videoFullBleed ? Math.max(insets.bottom, 12) + 6 : undefined },
+            ]}
+          >
             <View style={styles.controlRow}>
               <Pressable
                 style={styles.controlHit}
@@ -931,6 +1019,88 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: IMO.bg,
     paddingHorizontal: 20,
+  },
+  rootVideoImo: {
+    paddingHorizontal: 0,
+    backgroundColor: '#000',
+  },
+  videoFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+    zIndex: 0,
+  },
+  remoteFullBleed: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  pipImo: {
+    position: 'absolute',
+    right: 12,
+    width: 120,
+    height: 200,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.42)',
+    zIndex: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 10,
+      },
+      android: { elevation: 10 },
+    }),
+  },
+  videoTopScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    zIndex: 2,
+  },
+  peerNameVideoOverlay: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  statusTextVideoOverlay: {
+    color: 'rgba(255,255,255,0.82)',
+    marginTop: 4,
+    fontSize: 14,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  busyVideoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    zIndex: 16,
+  },
+  /** Bottom bar over full-screen video (controls / accept-decline). */
+  callDockVideo: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.1)',
   },
   bgWash: {
     ...StyleSheet.absoluteFillObject,
